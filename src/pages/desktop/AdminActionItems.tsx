@@ -29,7 +29,16 @@ interface DisplayNames {
 
 const EMPTY_NAMES: DisplayNames = { playerName: 'Unknown player', teamName: null, caregiverName: null };
 
-export function AdminActionItems() {
+interface AdminActionItemsProps {
+  /** When embedded under the Users page's "Caregiver Reviews" tab (V1.8), the
+   *  page-level heading is suppressed (the tab supplies the context). */
+  embedded?: boolean;
+  /** Fired with the current pending count on load and after each action, so a
+   *  host (the Users tab) can show a live badge. */
+  onCountChange?: (count: number) => void;
+}
+
+export function AdminActionItems({ embedded = false, onCountChange }: AdminActionItemsProps = {}) {
   const [items, setItems] = useState<AdminActionItem[]>([]);
   const [names, setNames] = useState<Record<string, DisplayNames>>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +49,12 @@ export function AdminActionItems() {
   useEffect(() => {
     fetchItems();
   }, []);
+
+  // Report the pending count to a host (e.g. the Users tab badge) on load and
+  // after any dismiss/revoke changes the list.
+  useEffect(() => {
+    if (!isLoading) onCountChange?.(items.length);
+  }, [items, isLoading, onCountChange]);
 
   const fetchItems = async () => {
     setIsLoading(true);
@@ -136,13 +151,21 @@ export function AdminActionItems() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Caregiver Removal Reviews</h1>
-        <p className="text-gray-600 mt-1">
+      {!embedded && (
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">Caregiver Removal Reviews</h1>
+          <p className="text-gray-600 mt-1">
+            A caregiver was unlinked from a child. Decide whether to also revoke that child's device access, or leave
+            it as-is.
+          </p>
+        </div>
+      )}
+      {embedded && (
+        <p className="text-sm text-gray-600 mb-4">
           A caregiver was unlinked from a child. Decide whether to also revoke that child's device access, or leave
           it as-is.
         </p>
-      </div>
+      )}
 
       {actionError && (
         <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">

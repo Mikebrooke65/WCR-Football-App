@@ -27,13 +27,11 @@ import { TournamentPage } from '../pages/TournamentPage';
 // Desktop admin pages
 import { DesktopLanding } from '../pages/desktop/DesktopLanding';
 import { DesktopCoaching } from '../pages/desktop/DesktopCoaching';
-import { DesktopGames } from '../pages/desktop/DesktopGames';
 import { DesktopResources } from '../pages/desktop/DesktopResources';
 import { DesktopSchedule } from '../pages/desktop/DesktopSchedule';
 import { DesktopMessaging } from '../pages/desktop/DesktopMessaging';
 import { TeamsManagement } from '../pages/desktop/TeamsManagement';
 import { UserManagement } from '../pages/desktop/UserManagement';
-import { AdminActionItems } from '../pages/desktop/AdminActionItems';
 import { Announcements } from '../pages/desktop/Announcements';
 import { LessonBuilder } from '../pages/desktop/LessonBuilder';
 import { SessionBuilder } from '../pages/desktop/SessionBuilder';
@@ -209,10 +207,7 @@ export const router = createBrowserRouter([
         path: 'coaching',
         element: <DesktopCoaching />,
       },
-      {
-        path: 'games',
-        element: <DesktopGames />,
-      },
+
       {
         path: 'resources',
         element: <DesktopResources />,
@@ -233,10 +228,7 @@ export const router = createBrowserRouter([
         path: 'users',
         element: <UserManagement />,
       },
-      {
-        path: 'admin-action-items',
-        element: <AdminActionItems />,
-      },
+
       // Reporting hidden for the V1 launch trial (V1.8 / deferred to V2.8) —
       // routes are only registered when the flag is on, so the pages can't be
       // reached by URL either. Components stay imported for a one-line re-enable.

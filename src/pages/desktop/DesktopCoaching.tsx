@@ -1,16 +1,51 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
+import { supabase } from '../../lib/supabase';
+
+interface CoachingCounts {
+  lessons: number | null;
+  sessions: number | null;
+  coaches: number | null;
+}
 
 export function DesktopCoaching() {
-  console.log('DesktopCoaching rendering');
-  
+  const [counts, setCounts] = useState<CoachingCounts>({ lessons: null, sessions: null, coaches: null });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCounts() {
+      // Real counts (head:true = count only, no rows) — mirrors DesktopLanding.
+      // Best-effort: a failed count simply leaves that stat blank ("—").
+      const [lessonsRes, sessionsRes, coachesRes] = await Promise.all([
+        supabase.from('lessons').select('*', { count: 'exact', head: true }),
+        supabase.from('sessions').select('*', { count: 'exact', head: true }),
+        supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'coach').eq('active', true),
+      ]);
+      if (cancelled) return;
+      setCounts({
+        lessons: lessonsRes.count ?? null,
+        sessions: sessionsRes.count ?? null,
+        coaches: coachesRes.count ?? null,
+      });
+    }
+
+    loadCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const fmt = (n: number | null) => (n == null ? '—' : String(n));
+
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-[#22c55e]">Coaching Hub</h1>
-        <p className="text-gray-600 mt-1">Access lessons, AI coaching assistant, and training resources</p>
+        <p className="text-gray-600 mt-1">Build and manage lesson plans and training sessions</p>
       </div>
 
-      {/* Coaching Options */}
+      {/* Builders */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <Link
           to="/desktop/lesson-builder"
@@ -63,40 +98,22 @@ export function DesktopCoaching() {
         </Link>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Counts + quick actions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Coaching Stats</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">Coaching Content</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Total Sessions</span>
-              <span className="text-2xl font-bold text-[#0091f3]">87</span>
+              <span className="text-sm text-gray-600">Total Lessons</span>
+              <span className="text-2xl font-bold text-[#0091f3]">{fmt(counts.lessons)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Total Lessons</span>
-              <span className="text-2xl font-bold text-[#0091f3]">28</span>
+              <span className="text-sm text-gray-600">Total Sessions</span>
+              <span className="text-2xl font-bold text-[#0091f3]">{fmt(counts.sessions)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">Active Coaches</span>
-              <span className="text-2xl font-bold text-[#0091f3]">18</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Recent Activity</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center text-gray-600">
-              <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
-              <span>New lesson created</span>
-            </div>
-            <div className="flex items-center text-gray-600">
-              <div className="w-2 h-2 rounded-full bg-blue-500 mr-2"></div>
-              <span>Session updated</span>
-            </div>
-            <div className="flex items-center text-gray-600">
-              <div className="w-2 h-2 rounded-full bg-purple-500 mr-2"></div>
-              <span>Lesson published</span>
+              <span className="text-2xl font-bold text-[#0091f3]">{fmt(counts.coaches)}</span>
             </div>
           </div>
         </div>

@@ -4,7 +4,24 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { rolesApi } from '../../lib/roles-api';
 import { invitesApi } from '../../lib/invites-api';
+import { caregiversApi } from '../../lib/caregivers-api';
+import { GantNotesPanel } from '../../components/GantNotesPanel';
+import { AdminActionItems } from './AdminActionItems';
 import type { TeamMemberWithTeam, TeamRole, InviteCode } from '../../types/database';
+
+/** A child/device-access account carries a synthetic, non-deliverable email
+ *  (`child.<uuid>@no-reply.invalid`, created by create-auth-user). Used to
+ *  suppress that meaningless address in the list and show caregiver details
+ *  instead (V1.8). */
+function isChildAccount(email: string | undefined | null): boolean {
+  return !!email && email.toLowerCase().endsWith('@no-reply.invalid');
+}
+
+interface CaregiverContact {
+  name: string;
+  cellphone: string | null;
+  email: string | null;
+}
 
 interface User {
   id: string;
@@ -60,6 +77,12 @@ export function UserManagement() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  // Caregiver contacts keyed by child (player) user id — for child/device
+  // accounts, whose own "email" is a meaningless synthetic address (V1.8).
+  const [childCaregivers, setChildCaregivers] = useState<Record<string, CaregiverContact[]>>({});
+  // V1.8: Caregiver Reviews folded in here as a tab (was a standalone page).
+  const [activeTab, setActiveTab] = useState<'users' | 'reviews'>('users');
+  const [reviewCount, setReviewCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -94,6 +117,19 @@ export function UserManagement() {
     fetchTeams();
   }, []);
 
+  // Initial pending Caregiver-Reviews count for the tab badge (before the tab
+  // is opened). Once the tab is opened, AdminActionItems reports the live count
+  // via onCountChange. admin_action_items is admin-only readable.
+  useEffect(() => {
+    (async () => {
+      const { count } = await supabase
+        .from('admin_action_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      setReviewCount(count ?? 0);
+    })();
+  }, []);
+
   // Check for edit parameter in URL
   useEffect(() => {
     const editUserId = searchParams.get('edit');
@@ -106,6 +142,39 @@ export function UserManagement() {
       }
     }
   }, [searchParams, users]);
+
+  // Load caregiver contacts for any child/device-access accounts on the list,
+  // so their row can show the caregiver instead of the synthetic email (V1.8).
+  // One query keyed by the child ids, not N per-child calls.
+  useEffect(() => {
+    const childIds = users.filter((u) => isChildAccount(u.email)).map((u) => u.id);
+    if (childIds.length === 0) {
+      setChildCaregivers({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('player_caregivers')
+        .select('player_id, caregiver:users!player_caregivers_caregiver_id_fkey(first_name, last_name, cellphone, email)')
+        .in('player_id', childIds);
+      if (cancelled || error || !data) return;
+      const map: Record<string, CaregiverContact[]> = {};
+      for (const row of data as any[]) {
+        const c = row.caregiver;
+        if (!c) continue;
+        (map[row.player_id] ||= []).push({
+          name: `${c.first_name} ${c.last_name}`.trim(),
+          cellphone: c.cellphone ?? null,
+          email: c.email ?? null,
+        });
+      }
+      if (!cancelled) setChildCaregivers(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [users]);
 
   const fetchUsers = async () => {
     try {
@@ -213,32 +282,12 @@ export function UserManagement() {
 
         if (error) throw error;
 
-        // Update team assignment
-        // Remove from old team first
-        const { error: deleteError } = await supabase
-          .from('team_members')
-          .delete()
-          .eq('user_id', editingUser.id);
-
-        if (deleteError) {
-          console.error('Error removing from old team:', deleteError);
-        }
-
-        // Add to new team if one is selected
-        if (formData.teamId) {
-          const { error: insertError } = await supabase
-            .from('team_members')
-            .insert({
-              team_id: formData.teamId,
-              user_id: editingUser.id,
-              role: formData.role === 'coach' ? 'coach' : 'player',
-            });
-
-          if (insertError) {
-            console.error('Error adding to new team:', insertError);
-            throw insertError;
-          }
-        }
+        // Team/role memberships are managed live by the "Team Assignments"
+        // editor in this modal (handleAddTeamAssignment / handleChangeTeamRole /
+        // handleRemoveTeamAssignment). Do NOT delete-and-re-add here — the old
+        // code wiped every team_members row for the user and re-added only the
+        // first team, clobbering multi-team memberships and the inline editor's
+        // own changes (V1.8 fix).
 
         alert('User updated successfully');
       } else {
@@ -288,24 +337,10 @@ export function UserManagement() {
     }
   };
 
-  /**
-   * 2026-08-31 — pre-existing bug, found while relocating Deactivate/
-   * Reactivate here from the Team Page (see `permissions-logic.ts`'s
-   * `canRemoveTeamMember` doc comment for why they moved). This button has
-   * always been local-state-only: it filters `users` in memory and never
-   * calls the database, so refreshing the page (or `fetchUsers()` running
-   * again) undoes it silently. NOT fixed as part of this change — a real
-   * "Delete" here would need its own design decision (hard-delete the
-   * account? cascade to every team/caregiver link? this is a much bigger
-   * question than relocating Deactivate/Reactivate) — flagged here and in
-   * CHANGELOG.md as a known, separate gap rather than silently patched or
-   * silently left undocumented.
-   */
-  const handleDelete = (userId: string) => {
-    if (confirm('Are you sure you want to delete this user?')) {
-      setUsers(users.filter((u) => u.id !== userId));
-    }
-  };
+  // V1.8: the old in-memory "Delete" (local-state-only no-op) is removed.
+  // Real account deletion is deferred to the data-retention/deletion workstream
+  // (soft vs hard delete, cascade rules, notice/export). The user detail modal
+  // shows delete-eligibility ("role-free" guard) as informational text only.
 
   /**
    * 2026-08-31 — now a real, DB-persisting whole-account Deactivate/
@@ -500,7 +535,37 @@ export function UserManagement() {
           </div>
         </div>
 
+        {/* Tabs (V1.8): the Users list + the folded-in Caregiver Reviews */}
+        <div className="flex gap-2 mb-4 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+              activeTab === 'users'
+                ? 'border-[#0091f3] text-[#0091f3]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Users
+          </button>
+          <button
+            onClick={() => setActiveTab('reviews')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-2 ${
+              activeTab === 'reviews'
+                ? 'border-[#0091f3] text-[#0091f3]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Caregiver Reviews
+            {reviewCount > 0 && (
+              <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
+                {reviewCount}
+              </span>
+            )}
+          </button>
+        </div>
+
         {/* Filters */}
+        {activeTab === 'users' && (
         <div className="flex gap-3">
           <div className="flex-1 relative">
             <input
@@ -558,9 +623,15 @@ export function UserManagement() {
             <option value="lite">Lite Users</option>
           </select>
         </div>
+        )}
       </div>
 
-      {/* Users Table */}
+      {/* Users Table (or the folded-in Caregiver Reviews) */}
+      {activeTab === 'reviews' ? (
+        <div className="flex-1">
+          <AdminActionItems embedded onCountChange={setReviewCount} />
+        </div>
+      ) : (
       <div className="flex-1 bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -574,9 +645,6 @@ export function UserManagement() {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Role
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Team
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -607,7 +675,29 @@ export function UserManagement() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {isChildAccount(user.email) ? (
+                      <div>
+                        <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-indigo-100 text-indigo-700">
+                          Child / device access
+                        </span>
+                        {(childCaregivers[user.id] ?? []).length > 0 ? (
+                          <div className="mt-1 text-xs text-gray-600">
+                            {childCaregivers[user.id].map((c, i) => (
+                              <div key={i}>
+                                <span className="text-gray-500">Caregiver:</span> {c.name}
+                                {c.cellphone ? ` · ${c.cellphone}` : c.email ? ` · ${c.email}` : ''}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-xs text-gray-400">No caregiver linked</div>
+                        )}
+                      </div>
+                    ) : (
+                      user.email
+                    )}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleBadgeColor(user.role)}`}>
                       {roleOptions.find((r) => r.value === user.role)?.label || user.role}
@@ -616,7 +706,6 @@ export function UserManagement() {
                       <span className="ml-1 px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Lite</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.team}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
                       onClick={() => handleToggleStatus(user.id)}
@@ -640,14 +729,11 @@ export function UserManagement() {
                     {user.user_type === 'lite' && (
                       <button
                         onClick={() => handlePromoteToFull(user.id)}
-                        className="text-green-600 hover:text-green-800 mr-3"
+                        className="text-green-600 hover:text-green-800"
                       >
                         Promote
                       </button>
                     )}
-                    <button onClick={() => handleDelete(user.id)} className="text-red-600 hover:text-red-800">
-                      Delete
-                    </button>
                   </td>
                 </tr>
               ))}
@@ -674,6 +760,7 @@ export function UserManagement() {
           </div>
         )}
       </div>
+      )}
 
       {/* Add/Edit Modal */}
       {isModalOpen && (
@@ -877,6 +964,25 @@ export function UserManagement() {
                   </select>
                 )}
               </div>
+
+              {editingUser && (
+                <div className="pt-3 border-t border-gray-100">
+                  <p className="text-xs text-gray-500">
+                    {editMemberships.length > 0
+                      ? 'This account has team roles. Remove them from all teams before it can be deleted.'
+                      : 'This account has no team roles. Account deletion will be available in the data-retention release.'}
+                  </p>
+                </div>
+              )}
+
+              {editingUser && editingUser.role === 'player' && (
+                <div className="pt-3 border-t border-gray-100">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Progress Notes</label>
+                  <div className="max-h-64 overflow-y-auto pr-1">
+                    <GantNotesPanel scope="player" subjectId={editingUser.id} />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
