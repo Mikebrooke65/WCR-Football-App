@@ -27,10 +27,20 @@ opening the thread (migration-075 root-sender SELECT works). Minor: the reply
 didn't indicate on the sender's thread *list* until opened — real-time/push to
 assess on the Capacitor build (parked, non-blocking).
 
-**What's left for V1 (down to 4):** V1.6 invite-page branding → V1.7 RSVP →
-privacy + retention (last, hard gate) → V1.9 store. (Caregiver DOB Correction
-Threshold resolved 2026-09-08 as a no-code decision — Option A.) See "Remaining
-V1 build work" below.
+**V1.6 invite-page branding — DONE 2026-09-08 (`b8b9c61`).** Invite links now
+show club logo/name/colour + the competition name + an intro, consistent across
+all states. Needed migration `076` (anon read of `club_settings` + scoped anon
+read of `competitions`). **Deploy owed: run migration 076** — branding won't show
+for anon visitors until then.
+
+**What's left for V1 (down to 3):** V1.7 RSVP → privacy + retention (last, hard
+gate) → V1.9 store. (V1.6 done; Caregiver DOB Correction Threshold resolved
+2026-09-08 as a no-code decision — Option A.) See "Remaining V1 build work"
+below.
+
+**Migrations owed to production (run in Supabase SQL Editor):** `076`
+(V1.6 anon branding/competition). Plus the earlier `send-email` Edge Function
+deploy for the email-branding fix.
 
 ---
 
@@ -1293,7 +1303,7 @@ One-line status per item. Detail is in the sections further down.
 | **Streamlined Invites & Child Account Access (Task 12)** | ✅ **Fully closed, 2026-09-01** | All 6 test sections fully confirmed live, including both migration-063 admin-review trigger firing (twice, independently) and the Competitions page assign-existing-Manager path (confirmed via a real "Open huapai demons" tournament team, timestamp `2026-09-01 22:25:47`). One cosmetic concern found on the way (confirmation email header) — investigated 2026-09-08 and **resolved**: not a value bug (the header is the CLUB name by design, body is the TEAM); branding is now sourced from `club_settings` (DB), deploy of `send-email` pending. See CHANGELOG 2026-09-08 |
 | **Roster "Remove" action** (new, surfaced from Task 12 item 6) | ✅ **Fully done, 2026-09-01** | Self-removal, the caregiver cascade (both directions), first-Manager protection, multi-team removal, and a plain Coach doing the removing — all confirmed live. Nothing left outstanding |
 | V1.5 Role-aware nav | ✅ DONE | — |
-| V1.6 Invite page branding | ⬜ Not started | Independent |
+| V1.6 Invite page branding | ✅ **DONE, built + pushed 2026-09-08** (`b8b9c61`) | Branded invite landing (club logo/name/colour header, competition name prominent + intro copy), consistent across form/error/bounce/existing-user states. Needed migration `076` (anon read of `club_settings` + scoped anon read of `competitions` for a live invite). **Deploy owed:** run migration 076 in Supabase SQL Editor, then eyeball an invite link |
 | V1.7 RSVP / availability | 🟠 Mostly built | RSVP reminder pushes; caregiver multi-child RSVP build (design already agreed) |
 | V1.8 Admin console correctness pass | ✅ **DONE, built + pushed 2026-09-04** | Full 10-task Kiro spec (`.kiro/specs/admin-console-v1.8/`) shipped — flat admin sidebar, Coaching hub on real counts, Users list/detail cleanup, Caregiver Reviews folded into Users, Teams manager column + pending badge + Assign Manager, Competitions split into External Leagues / Club Events with click-throughs + fixtures. Reporting hidden → V2.8. Commits `dfa15dc`, `076fbd9`, `ccb7fea` (+ `9061382` lite/full UI removal). **Left for owner:** one live admin eyeball. Two follow-ups deferred: broaden "Active Coaches" count; V2 coaching-activity dashboard |
 | V1.M Messaging — send to Admins | ✅ **Fully closed, live-verified end-to-end 2026-09-08** | Root cause was two coupled things: (1) "Club Admin" messages are team-less but `messages.team_id` was NOT NULL and the compose form only auto-fills a team when you're on exactly one — so a multi-team admin sent an empty `team_id` and the insert was rejected (the "nothing happens" repro); (2) the inbox query keyed on team membership, so a team-less admin message wouldn't appear anyway. Fix (migration `075_messages_admin_inbox.sql` + client): `team_id` nullable, INSERT policy allows a team-less message from any authenticated user (contact-the-club path), a `SECURITY DEFINER` `message_thread_root_sender()` helper drives a SELECT clause so the thread's original sender sees admin replies (no recursion — the mig-035 trap), compose sends `team_id: null` for Club Admin, and `getThreads` now includes team-less threads. Confirmed live on localhost against the migrated DB: sending to Club Admin resolved to all 6 admins and appeared in the shared inbox. ✅ **Return path verified live 2026-09-08** (Hewie Duck, coach = non-admin sender, on desktop → messaged Club Admin; Mike Brooke admin replied on mobile; Hewie opened the thread and saw the reply — the root-sender SELECT clause from migration 075 works). Minor UX note (not a data bug): the reply didn't bump/indicate on the sender's thread *list* until the thread was opened — no live/unread signal on the list view; real-time + push behaviour to be assessed on the Capacitor native build |
@@ -1319,17 +1329,20 @@ console (full spec shipped
 status table above for detail.
 
 **Remaining V1 build work:**
-1. **V1.6 invite-page branding** — not started, independent of everything else.
-2. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
+1. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
    agreed) + RSVP reminder pushes.
-3. **Privacy + retention — the final combined workstream, done LAST** (hard gate
+2. **Privacy + retention — the final combined workstream, done LAST** (hard gate
    before any store submission). Rewrite the privacy policy against everything
    actually built → reconcile with the retention scoping notes → define the
    retention/deletion policy → build it (V1.R Part 2) → fold in Gant's privacy
    section (Task 11). See "Privacy + retention — the final combined V1
    workstream" just below for the full sequencing.
-4. **V1.9 store distribution + privacy** — depends on step 3 locking; needs the
+3. **V1.9 store distribution + privacy** — depends on step 2 locking; needs the
    real store listing in `club_settings.app_url` at go-live.
+
+*(V1.6 invite-page branding was here — done 2026-09-08, `b8b9c61`; needs
+migration 076 run. "Caregiver DOB Correction Threshold" resolved 2026-09-08 as a
+no-code decision.)*
 
 *("Caregiver DOB Correction Threshold" was here — resolved 2026-09-08 as a
 no-code decision, Option A; see the Parked Decision 1 write-up.)*
@@ -2384,9 +2397,18 @@ because each role's six slots are chosen for that role's actual workflow.
 
 ---
 
-### V1.6 Invite Landing Page — Branding & Context — NOT STARTED
+### V1.6 Invite Landing Page — Branding & Context — ✅ DONE (2026-09-08, `b8b9c61`)
 
-Independent of the chain above; can be done any time.
+Built. The invite page now shows club branding (logo/name/colour header via a
+new `InvitePageShell`), the competition name prominently ("Join {competition}"
+with the team beneath), and a short "what this is / what happens next" intro —
+consistent across the form, error, bounce-to-Manager, and existing-user states.
+Required migration `076` (anon `SELECT` on `club_settings`; scoped anon `SELECT`
+on `competitions` for a live invite) since the page is anonymous and both were
+`authenticated`-only. **Deploy owed: run migration 076 in the Supabase SQL
+Editor** — branding + competition context won't show for anon visitors until
+then. Full detail: `CHANGELOG.md` 2026-09-08 "V1.6". Original scope notes below,
+for reference.
 
 **Partly improved already by V1.3**: migration 045 means the team name now
 actually renders for an anonymous visitor. Before that the heading read

@@ -2,6 +2,39 @@
 
 All notable changes to the football coaching app prototype will be documented in this file.
 
+## [2026-09-08] - V1.6: Invite landing page — branding & context
+
+### Changed
+- **The invite link now looks like your club, not a bare form.** When someone
+  opens an invite they land on a branded page — the club logo, name and colour
+  in the header — instead of a plain white "Join {team}" box, so it reads as
+  legitimate rather than a phishing page.
+- **It says what you're joining.** The competition is now shown prominently
+  ("Join {competition}", with the team beneath), and a short intro explains what
+  the app is and what happens next once you're in.
+- The branded, consistent look now carries across every version of that page —
+  the form, the error screens, the "ask your manager" outcome, and the "you
+  already have an account" screen.
+
+### Technical Notes
+- The invite page is anonymous (visitor isn't logged in yet), but `club_settings`
+  (migration 046) and `competitions` were `authenticated`-only, so neither the
+  branding nor the competition name could load. **Migration `076` (run manually)**
+  adds anon `SELECT` on `club_settings` (single-row, public-facing branding) and
+  a scoped anon `SELECT` on `competitions` limited to those referenced by a live
+  invite (mirrors migration 045's teams policy) + an `invite_codes(competition_id)`
+  index.
+- `invitesApi.validateInviteCode` embeds `competition:competitions(name)`;
+  `InviteCodeValidation` gains `competition?: { name } | null`.
+- `LiteLandingPage.tsx`: new `InvitePageShell` (branded header, club-agnostic —
+  omits any absent value, neutral fallback when branding is missing) wraps the
+  form / error / bounce / existing-user states; competition-aware heading +
+  intro copy added to the form.
+- **Deploy:** run migration `076` in the Supabase SQL Editor — branding +
+  competition context won't appear for anon visitors until it's applied.
+- Verified: scoped `tsc` clean, `npm run build` clean, vitest 254 passing (2
+  env-gated redeem-invite tests unchanged). Commit `b8b9c61`.
+
 ## [2026-09-08] - V1 correctness pass: caregiver age band, coach count, add-player UX, email branding
 
 ### Fixed
