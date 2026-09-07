@@ -2,6 +2,67 @@
 
 All notable changes to the football coaching app prototype will be documented in this file.
 
+## [2026-09-08] - V1 correctness pass: caregiver age band, coach count, add-player UX, email branding
+
+### Fixed
+- **Managing a child's caregivers now works even when the child is on an adult /
+  Open team.** Whether the "Add / Manage Caregivers" controls appear follows the
+  individual person's age (from their date of birth), not the team's age group.
+  A genuine under-16 registered on an Open team is treated as a child, as they
+  should be — previously they were blocked from caregiver management entirely.
+- **The Coaching page's "Active Coaches" now counts everyone who actually
+  coaches.** It previously counted only accounts whose top-level role is "coach",
+  so a coach promoted on a specific team (or a manager who also coaches) wasn't
+  counted — it could read as low as 1. It now counts each distinct active person
+  with coaching authority on any team.
+- **Add Player shows you the problem when a field is invalid.** If a required
+  field below the visible area was wrong, clicking Continue looked like it did
+  nothing; the form now scrolls to and focuses the first field that needs fixing.
+
+### Changed
+- **Club branding in emails now comes from your club settings, not a fixed
+  value.** The email header (club name and colour) and the app link are read from
+  the same club settings the app itself uses, so they stay correct for any club.
+  (Requires the email function to be redeployed to take effect.)
+
+### Technical Notes
+- Caregiver age band: added a per-person `ageBand` to `RosterMember` /
+  `RosterEntry` (`roster-logic.ts`), populated via `deriveAgeBandForPerson` in
+  `TeamPage.fetchRoster`; `isChildBandPlayerRow` now reads `entry.ageBand`
+  instead of the team-level `roster.ageBand`.
+- Fixed a build-invisible TS error in `teams-api.ts` (`getMyTeams`'s synthetic
+  pending-child membership was missing `is_coach`).
+- Active Coaches: counts distinct active users from `team_members` where
+  role='coach' OR is_coach, deduped in JS (one person can coach several teams).
+- `AddPlayerModal`: `scrollToFirstError` wired into all three validation-failure
+  paths, using the existing `add-player-<field>` ids (no refs).
+- `send-email` Edge Function: resolves `club_settings` (club_name /
+  primary_color / app_url) server-side via a service-role client, with the
+  `CLUB_*` env secrets + hardcoded defaults as fallback; server-side read only,
+  so "branding never from the request body" (Req 2.6) still holds. **Deploy
+  required:** `supabase functions deploy send-email` (does not take effect on git
+  push; not locally type-checkable — no Deno).
+- Verified: scoped `tsc` clean, `npm run build` clean, vitest 254 passing (2
+  env-gated redeem-invite tests unchanged).
+- Commits: `997f650` (four client fixes), `ed55caa` (email branding).
+
+## [2026-09-04] - Users admin: remove vestigial lite/full UI
+
+### Changed
+- **Removed the "Lite" badge, the Full/Lite filter, and the "Promote to full"
+  button from the Users admin.** They implied a capability difference that
+  doesn't exist: a "lite" user has the same access as a "full" one (navigation,
+  permissions and data are all role/team-based, not `user_type`-based). Nothing
+  a user can do changes when promoted.
+
+### Technical Notes
+- `UserManagement.tsx`: removed the badge, the `filterUserType` state + filter,
+  and `handlePromoteToFull`. The `user_type` column, `rolesApi.promoteToFullUser`,
+  and the tournament "Cleanup Lite Users" action are left in place, to be
+  superseded by the data-retention workstream (which removes team memberships,
+  not whole accounts). Decision + retirement path recorded in
+  `docs/data-retention-scoping.md`. Commit `9061382`.
+
 ## [2026-09-04] - V1.8: Admin desktop console rework
 
 ### Changed
