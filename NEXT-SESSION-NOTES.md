@@ -27,9 +27,10 @@ opening the thread (migration-075 root-sender SELECT works). Minor: the reply
 didn't indicate on the sender's thread *list* until opened — real-time/push to
 assess on the Capacitor build (parked, non-blocking).
 
-**What's left for V1 (two items fewer now):** DOB correction threshold → V1.6
-branding → V1.7 RSVP → privacy + retention (last, hard gate) → V1.9 store. See
-"Remaining V1 build work" below.
+**What's left for V1 (down to 4):** V1.6 invite-page branding → V1.7 RSVP →
+privacy + retention (last, hard gate) → V1.9 store. (Caregiver DOB Correction
+Threshold resolved 2026-09-08 as a no-code decision — Option A.) See "Remaining
+V1 build work" below.
 
 ---
 
@@ -807,9 +808,10 @@ outstanding on this spec.**
   **Two decisions deliberately parked, coming back to them soon — named so
   they're easy to find again:**
 
-  **Parked Decision 1 — "Caregiver DOB Correction Threshold." STILL OPEN
-  (re-checked 2026-08-27) — distinct from, and not resolved by, the
-  Streamlined Invites & Child Account Access spec above.** No
+  **Parked Decision 1 — "Caregiver DOB Correction Threshold." ✅ RESOLVED
+  2026-09-08 (Option A — accept + document; see the resolution note at the end
+  of this item). Was open, re-checked 2026-08-27 — distinct from, and not
+  resolved by, the Streamlined Invites & Child Account Access spec above.** No
   age-threshold check exists for a caregiver-corrected DOB on the Approve
   screen — nothing currently stops a caregiver "correcting" a child's DOB to
   something that would actually make them 16+, and it would still go
@@ -822,6 +824,20 @@ outstanding on this spec.**
   age, by design as of when it was written. Needs a real decision on what
   should happen then (reject like the Adult under-16 case does, redirect
   to the Adult path, something else) — not a silent addition.
+
+  **RESOLVED 2026-09-08 — Option A: accept + document, no code.** Two decisions
+  made *after* this was parked already handle it: (1) the 2026-08-30 Section 6.2
+  product decision — a Child-ticked/caregiver-managed 16+ is fine, no forced
+  conversion, and they get self-service "Remove My Caregiver" once they have
+  their own login; (2) the 2026-09-08 age-band fix — age band now follows the
+  person's own DOB, so a corrected-to-16+ child is automatically adult-band
+  (shows their own contact, and `canSelfRemoveCaregiver` becomes true for them).
+  So a caregiver-corrected 16+ DOB produces an adult-band player who can remove
+  their own caregiver — handled gracefully by mechanisms already shipped, no new
+  gate needed. Rejected Option B (hard block — stricter than the 6.2 philosophy)
+  and Option C (redirect to Adult path — the "convert in place" mess 6.2
+  deliberately rejected). Optional soft info line on the Approve screen was NOT
+  taken. This item is closed.
 
   **Parked Decision 2 — "Existing-User Invite Shortcut." RESOLVED
   2026-08-26** — built as Requirement 2 / Task 4 of the Streamlined
@@ -1273,7 +1289,7 @@ One-line status per item. Detail is in the sections further down.
 | V1.2 Email service | ✅ DONE | — |
 | V1.3 Self-registration fix | ✅ DONE | 3 small follow-ups |
 | V1.4 Welcome + Team page | ✅ DONE | Logo; 32 optional tests |
-| Add Player / DOB age model | ✅ DONE | "Caregiver DOB Correction Threshold" decision still open |
+| Add Player / DOB age model | ✅ DONE | "Caregiver DOB Correction Threshold" ✅ resolved 2026-09-08 (Option A — accept + document; handled by the 6.2 self-removal decision + the age-band fix). Nothing outstanding |
 | **Streamlined Invites & Child Account Access (Task 12)** | ✅ **Fully closed, 2026-09-01** | All 6 test sections fully confirmed live, including both migration-063 admin-review trigger firing (twice, independently) and the Competitions page assign-existing-Manager path (confirmed via a real "Open huapai demons" tournament team, timestamp `2026-09-01 22:25:47`). One cosmetic concern found on the way (confirmation email header) — investigated 2026-09-08 and **resolved**: not a value bug (the header is the CLUB name by design, body is the TEAM); branding is now sourced from `club_settings` (DB), deploy of `send-email` pending. See CHANGELOG 2026-09-08 |
 | **Roster "Remove" action** (new, surfaced from Task 12 item 6) | ✅ **Fully done, 2026-09-01** | Self-removal, the caregiver cascade (both directions), first-Manager protection, multi-team removal, and a plain Coach doing the removing — all confirmed live. Nothing left outstanding |
 | V1.5 Role-aware nav | ✅ DONE | — |
@@ -1303,19 +1319,20 @@ console (full spec shipped
 status table above for detail.
 
 **Remaining V1 build work:**
-1. **"Caregiver DOB Correction Threshold" — decision, then build** (parked from
-   the Add Player / DOB spec, still open).
-2. **V1.6 invite-page branding** — not started, independent of everything else.
-3. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
+1. **V1.6 invite-page branding** — not started, independent of everything else.
+2. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
    agreed) + RSVP reminder pushes.
-4. **Privacy + retention — the final combined workstream, done LAST** (hard gate
+3. **Privacy + retention — the final combined workstream, done LAST** (hard gate
    before any store submission). Rewrite the privacy policy against everything
    actually built → reconcile with the retention scoping notes → define the
    retention/deletion policy → build it (V1.R Part 2) → fold in Gant's privacy
    section (Task 11). See "Privacy + retention — the final combined V1
    workstream" just below for the full sequencing.
-5. **V1.9 store distribution + privacy** — depends on step 4 locking; needs the
+4. **V1.9 store distribution + privacy** — depends on step 3 locking; needs the
    real store listing in `club_settings.app_url` at go-live.
+
+*("Caregiver DOB Correction Threshold" was here — resolved 2026-09-08 as a
+no-code decision, Option A; see the Parked Decision 1 write-up.)*
 
 **Messaging polish to assess on the Capacitor native build (not blocking):** a
 new reply doesn't surface on the *sender's* thread-list until the thread is
@@ -1660,7 +1677,7 @@ These block or shape work below. Listed here so they don't stay buried.
 | 6 | **Friendly Manager export format** — waiting on sample | V1.T | User to obtain export sample or screenshot |
 | 7 | ~~Which machine for Android Studio?~~ | V1.1a | **RESOLVED 2026-08-14** — use the other laptop (has adequate disk/RAM). This laptop stays the main build machine. See V1.1a |
 | 9 | ~~Consent-timeout exact day count~~ | Streamlined Invites Task 11 | **RESOLVED 2026-08-27** — 30 days. See `CHANGELOG.md`'s 2026-08-27 entry |
-| 10 | **"Caregiver DOB Correction Threshold"** — should a caregiver be able to "correct" a child's DOB to 16+ on the Approve screen and have it still go through as a Junior? | Nothing blocks on it today, but it's a real, live gap | Parked from the Add Player / DOB spec, still open — see that section near the top of this file for the full write-up. Needs the same kind of decision as the Adult under-16 case: reject, redirect to Adult path, or something else |
+| 10 | ~~**"Caregiver DOB Correction Threshold"**~~ | Add Player / DOB spec | **RESOLVED 2026-09-08 — Option A (accept + document).** A caregiver-corrected 16+ DOB now yields an adult-band player who can self-remove their caregiver (handled by the 2026-08-30 Section 6.2 self-removal decision + the 2026-09-08 age-band fix). No new gate; no code. See the Parked Decision 1 write-up near the top for full rationale |
 | 11 | **Self-service profile editing** — which fields (name, phone, DOB, email) should a user be able to edit on their own record, with no Admin needed? | Nothing blocks on it today; found via the "Amy Brook"/"Amy Brooke" typo mess (see the Remove-action write-up) | New, 2026-09-01. No Profile/Settings page exists for anyone today — the only edit surface at all is the desktop-only, Admin-only `UserManagement.tsx`. Related to, and worth deciding alongside, item 10 above |
 
 ---
