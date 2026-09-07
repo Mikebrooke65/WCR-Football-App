@@ -1,4 +1,39 @@
 # Next Session Notes
+## Current State — 4 September 2026
+
+**V1.8 Admin Console rework — DONE (built + pushed).** The full 10-task Kiro
+spec (`.kiro/specs/admin-console-v1.8/`) is complete: flat single-list desktop
+nav; Coaching hub on real counts; Users list/detail cleanup (highest-role badge,
+child/device rows show caregiver, per-person team/role list, appoint-admin,
+Progress Notes link, role-free delete guard); Caregiver Reviews folded into Users
+as a tab; Teams manager column + pending badge + Assign Manager (search existing
+or invite-by-email, 2-manager cap); Competitions split into External Leagues /
+Club Events with click-throughs and a Fixtures & standings button. No new
+migrations — all client-side. Commits: Tasks 1–5 `dfa15dc`, Tasks 6–8 `076fbd9`,
+Task 10 docs this batch. Full detail in `CHANGELOG.md` (2026-09-04 "V1.8: Admin
+desktop console rework") and the spec's `tasks.md`.
+
+**Still to do on V1.8 — the live eyeball (owner):** manual admin pass, especially
+the real-data bits — Teams manager/pending display, assign/invite flow,
+Competitions tabs + click-throughs, and the fixtures link. Task 9 mobile paths
+(admin role actions + Coaching delivery access) were confirmed in code but the
+device tap-through is still worth a look.
+
+**Two follow-ups parked (in the spec's Deferred list):**
+1. **"Active Coaches" count** on the desktop Coaching page is strict global
+   `users.role='coach'` (undercounts — shows 1). Broaden to coach-authority
+   (`team_members` role='coach' OR `is_coach`).
+2. **Coaching-activity dashboard** (lesson deliveries + coach feedback surfacing
+   on desktop Coaching) → V2.
+
+**Watch items (unchanged):** the 2 `redeem-invite` tests in
+`invites-api.preservation.test.ts` run + fail on this laptop because
+`SUPABASE_SERVICE_ROLE_KEY` is set (they skip in CI without it) — a known
+env quirk, not a regression. Mike Brooke's admin role was restored via SQL
+(migration 066 keeps `users.role` as the trigger-maintained highest role).
+
+---
+
 ## Current State — 28 August 2026
 
 **Since this was last updated (25 -> 28 August):** the entire

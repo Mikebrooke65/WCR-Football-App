@@ -2,6 +2,60 @@
 
 All notable changes to the football coaching app prototype will be documented in this file.
 
+## [2026-09-04] - V1.8: Admin desktop console rework
+
+### Changed
+- **The admin desktop menu is now one simple list.** The old "Main / Admin"
+  split is gone, along with menu items you didn't need at the top level
+  (Games, Session Builder, Lesson Builder, Tournaments, Caregiver Reviews).
+  What's left is the set of pages an admin actually works from, in a sensible
+  order. The builders are still there — you reach them from the Coaching page —
+  and a competition's fixtures open from that Club Event.
+- **The Coaching page shows real numbers.** Total lessons and total sessions
+  are now live counts instead of placeholder figures, and a mock "recent
+  activity" panel that never did anything was removed.
+- **The Users list is cleaner.** Dropped the empty Team column; each person
+  shows a single highest-role badge. Child / device accounts now show a
+  "Child / device access" pill and the caregiver's name and contact, instead
+  of the internal placeholder email.
+- **A person's detail view now lists every team and role they hold,** lets you
+  edit their name and phone, appoint them as an admin, jump straight to a
+  player's Progress Notes, and click through to a team. Delete is only offered
+  once someone holds no team roles (the actual delete stays parked with the
+  retention work).
+- **Caregiver Reviews now lives inside the Users page** as a tab with a pending
+  count, rather than its own menu item.
+- **The Teams page shows each team's manager,** and greys out teams whose
+  manager invite is still outstanding with a "Pending" badge and the invite
+  date. You can now **assign a manager** right from a team: search for an
+  existing person (type-ahead) or invite one by email, capped at two managers
+  per team.
+- **Competitions is split into External Leagues and Club Events.** Team names
+  click through to that team, "Invite" reads "Reinvite" where a resend is what's
+  needed, and each Club Event has a "Fixtures & standings" button.
+
+### Technical Notes
+- No new migrations — entirely client-side over the existing schema.
+- Spec: `.kiro/specs/admin-console-v1.8/` (requirements / design / tasks).
+- `DesktopLayout` is now a data-driven flat `NAV_ITEMS` list (inline-style accent
+  colours to dodge Tailwind dynamic-class purging). Reporting stays hidden behind
+  the existing `desktopFeatures` flag.
+- Teams manager/pending derived from `team_members` (role='manager') +
+  outstanding `invite_codes` (`intended_role='manager'`, `redeemed_by IS NULL`,
+  unexpired); assign reuses `rolesApi` / `invitesApi.generateInviteCode` and
+  surfaces the migration-048 `manager_cap_reached` guard as a friendly message.
+- Cross-page click-throughs use query params (`teams?team=<id>`,
+  `tournaments?comp=<id>`).
+- Mobile in-field paths confirmed at code level: `tabsForRole` gives admins the
+  Coaching tab (`ProtectedRoute` mirrors it) and `resolveCapabilities` grants an
+  admin full roster role actions on Club Tournament teams (External League stays
+  read-only for everyone by design).
+- Two follow-ups recorded in the spec's Deferred list: broaden the "Active
+  Coaches" count to coach-authority (team_members role='coach' OR is_coach), and
+  the V2 coaching-activity dashboard (lesson deliveries + feedback).
+- Verified: `npm run build` clean; vitest 254 passing (2 env-gated
+  `redeem-invite` tests unchanged).
+
 ## [2026-09-04] - Messaging: reach the club admins; admin console tidy
 
 ### Fixed
