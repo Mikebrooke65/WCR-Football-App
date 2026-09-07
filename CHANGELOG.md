@@ -24,16 +24,26 @@ All notable changes to the football coaching app prototype will be documented in
   a scoped anon `SELECT` on `competitions` limited to those referenced by a live
   invite (mirrors migration 045's teams policy) + an `invite_codes(competition_id)`
   index.
-- `invitesApi.validateInviteCode` embeds `competition:competitions(name)`;
-  `InviteCodeValidation` gains `competition?: { name } | null`.
+- `invitesApi.validateInviteCode` returns both `team` and `competition` fetched
+  by **direct query by id** (no PostgREST embeds); `InviteCodeValidation` gains
+  `competition?: { name } | null`.
+- **GOTCHA worth remembering (cost a lot of time here):** PostgREST *resource
+  embeds* (`team:teams(*)`) come back **empty for the `anon` role on the teams
+  table**, even though anon has the grant AND a matching RLS policy AND a *direct*
+  read succeeds (`SET ROLE anon` returned the row). Confirmed via the raw
+  response: `"team": null` while a plain `from('teams').eq('id', …)` works fine.
+  So **anon-facing reads (the invite page) must fetch by direct query, not
+  embeds.** The competition read hit the same wall and was already direct; the
+  team was switched to match (commits `8ba9ccc` → `eaa0b89` → `149b776`).
 - `LiteLandingPage.tsx`: new `InvitePageShell` (branded header, club-agnostic —
   omits any absent value, neutral fallback when branding is missing) wraps the
   form / error / bounce / existing-user states; competition-aware heading +
   intro copy added to the form.
-- **Deploy:** run migration `076` in the Supabase SQL Editor — branding +
-  competition context won't appear for anon visitors until it's applied.
-- Verified: scoped `tsc` clean, `npm run build` clean, vitest 254 passing (2
-  env-gated redeem-invite tests unchanged). Commit `b8b9c61`.
+- **Deploy:** run migration `076` in the Supabase SQL Editor (done 2026-09-08).
+- Verified live end-to-end 2026-09-08: anonymous incognito invite shows the club
+  header, "Join Summer Football", "with Open blue elephants", and the intro copy.
+  Scoped `tsc` + `npm run build` clean; vitest 254 passing (2 env-gated).
+  Commits `b8b9c61` (build) + `8ba9ccc`/`eaa0b89`/`149b776` (anon-embed fix).
 
 ## [2026-09-08] - V1 correctness pass: caregiver age band, coach count, add-player UX, email branding
 
