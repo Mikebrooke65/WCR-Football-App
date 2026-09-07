@@ -39,9 +39,16 @@ gate) → V1.9 store. (V1.6 done; Caregiver DOB Correction Threshold resolved
 2026-09-08 as a no-code decision — Option A.) See "Remaining V1 build work"
 below.
 
-**Deploys owed to production:** the `send-email` Edge Function deploy for the
-email-branding fix (`supabase functions deploy send-email`). Migration `076`
-(V1.6) is DONE (run + verified 2026-09-08).
+**Deploys owed to production: none.** `send-email` deployed 2026-09-08 (ACTIVE
+v8) and migration `076` run + verified — both live. Only the optional
+live-eyeballs remain (age-band fix, coach count, V1.8 admin pass).
+
+**V1.7 is now fully spec'd for handoff:** see `.kiro/specs/v1.7-rsvp-availability/`
+(requirements / design / tasks) — Piece A (caregiver multi-child RSVP, client +
+migration 077) and Piece B (RSVP reminder pushes, Edge Function + pg_cron). Build
+A before B. Written 2026-09-08 for execution on the other laptop (Claude). Three
+small decisions have proposed defaults flagged for locking (reminder lead time,
+caregiver-reminder granularity, scheduling mechanism).
 
 ---
 
@@ -1330,8 +1337,10 @@ console (full spec shipped
 status table above for detail.
 
 **Remaining V1 build work:**
-1. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
-   agreed) + RSVP reminder pushes.
+1. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build + RSVP
+   reminder pushes. **Fully spec'd 2026-09-08:**
+   `.kiro/specs/v1.7-rsvp-availability/` (requirements / design / tasks). Build
+   Piece A (client + migration 077) before Piece B (Edge Function + pg_cron).
 2. **Privacy + retention — the final combined workstream, done LAST** (hard gate
    before any store submission). Rewrite the privacy policy against everything
    actually built → reconcile with the retention scoping notes → define the
