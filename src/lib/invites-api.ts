@@ -101,9 +101,15 @@ class InvitesApi extends ApiClient {
 
   /** Validate an invite code — returns status and details */
   async validateInviteCode(code: string): Promise<InviteCodeValidation> {
+    // Keep the ORIGINAL single-embed shape for the team — proven to work for
+    // an anonymous visitor (migration 045). 2026-09-08: adding a second embed
+    // (`competition:competitions(name)`) to this same select made the `team`
+    // embed come back null for anon (confirmed via the raw response), while the
+    // competition embed populated — so the two are fetched separately now
+    // rather than chasing why the combined embed misbehaves.
     const { data, error } = await this.supabase
       .from('invite_codes')
-      .select('*, team:teams(*), competition:competitions(name)')
+      .select('*, team:teams(*)')
       .eq('code', code)
       .single();
 
@@ -121,14 +127,18 @@ class InvitesApi extends ApiClient {
       return { valid: false, error: 'expired', invite: data };
     }
 
-    // `competition` is the embed from `competitions(name)` — an object or null.
-    // Guard the array shape defensively (supabase types a to-one embed as an
-    // object, but has been known to surface arrays) so the landing page always
-    // gets `{ name } | null`.
-    const competitionEmbed = (data as { competition?: unknown }).competition;
-    const competition = Array.isArray(competitionEmbed)
-      ? (competitionEmbed[0] as { name: string } | undefined) ?? null
-      : ((competitionEmbed as { name: string } | null) ?? null);
+    // Competition name (V1.6) via a separate, anon-readable query (migration
+    // 076) — only when the invite names one. Best-effort: a failure just omits
+    // the competition context, never blocks validation.
+    let competition: { name: string } | null = null;
+    if (data.competition_id) {
+      const { data: comp } = await this.supabase
+        .from('competitions')
+        .select('name')
+        .eq('id', data.competition_id)
+        .maybeSingle();
+      if (comp?.name) competition = { name: comp.name };
+    }
 
     return { valid: true, invite: data, team: data.team, competition };
   }
