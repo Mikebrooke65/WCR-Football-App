@@ -21,9 +21,15 @@ Full detail in `CHANGELOG.md` (2026-09-08 entry). Done today:
 email header; live-check the caregiver age-band fix (a child on an Open team
 should now show Manage Caregivers) and the Active Coaches count.
 
-**What's left for V1 (unchanged shape, one build item fewer):** V1.M reply
-re-test → DOB correction threshold → V1.6 branding → V1.7 RSVP → privacy +
-retention (last, hard gate) → V1.9 store. See "Remaining V1 build work" below.
+**V1.M messaging — fully closed 2026-09-08.** Return path live-verified: Hewie
+(coach, non-admin) messaged Club Admin, admin replied, Hewie saw the reply on
+opening the thread (migration-075 root-sender SELECT works). Minor: the reply
+didn't indicate on the sender's thread *list* until opened — real-time/push to
+assess on the Capacitor build (parked, non-blocking).
+
+**What's left for V1 (two items fewer now):** DOB correction threshold → V1.6
+branding → V1.7 RSVP → privacy + retention (last, hard gate) → V1.9 store. See
+"Remaining V1 build work" below.
 
 ---
 
@@ -1274,7 +1280,7 @@ One-line status per item. Detail is in the sections further down.
 | V1.6 Invite page branding | ⬜ Not started | Independent |
 | V1.7 RSVP / availability | 🟠 Mostly built | RSVP reminder pushes; caregiver multi-child RSVP build (design already agreed) |
 | V1.8 Admin console correctness pass | ✅ **DONE, built + pushed 2026-09-04** | Full 10-task Kiro spec (`.kiro/specs/admin-console-v1.8/`) shipped — flat admin sidebar, Coaching hub on real counts, Users list/detail cleanup, Caregiver Reviews folded into Users, Teams manager column + pending badge + Assign Manager, Competitions split into External Leagues / Club Events with click-throughs + fixtures. Reporting hidden → V2.8. Commits `dfa15dc`, `076fbd9`, `ccb7fea` (+ `9061382` lite/full UI removal). **Left for owner:** one live admin eyeball. Two follow-ups deferred: broaden "Active Coaches" count; V2 coaching-activity dashboard |
-| V1.M Messaging — send to Admins | ✅ **Fixed 2026-09-04 (migration 075 run), send confirmed live** | Root cause was two coupled things: (1) "Club Admin" messages are team-less but `messages.team_id` was NOT NULL and the compose form only auto-fills a team when you're on exactly one — so a multi-team admin sent an empty `team_id` and the insert was rejected (the "nothing happens" repro); (2) the inbox query keyed on team membership, so a team-less admin message wouldn't appear anyway. Fix (migration `075_messages_admin_inbox.sql` + client): `team_id` nullable, INSERT policy allows a team-less message from any authenticated user (contact-the-club path), a `SECURITY DEFINER` `message_thread_root_sender()` helper drives a SELECT clause so the thread's original sender sees admin replies (no recursion — the mig-035 trap), compose sends `team_id: null` for Club Admin, and `getThreads` now includes team-less threads. Confirmed live on localhost against the migrated DB: sending to Club Admin resolved to all 6 admins and appeared in the shared inbox. **Still to verify with a second account:** a non-admin sender seeing an admin's reply (the root-sender SELECT clause) — mechanism built, not yet live-tested end to end |
+| V1.M Messaging — send to Admins | ✅ **Fully closed, live-verified end-to-end 2026-09-08** | Root cause was two coupled things: (1) "Club Admin" messages are team-less but `messages.team_id` was NOT NULL and the compose form only auto-fills a team when you're on exactly one — so a multi-team admin sent an empty `team_id` and the insert was rejected (the "nothing happens" repro); (2) the inbox query keyed on team membership, so a team-less admin message wouldn't appear anyway. Fix (migration `075_messages_admin_inbox.sql` + client): `team_id` nullable, INSERT policy allows a team-less message from any authenticated user (contact-the-club path), a `SECURITY DEFINER` `message_thread_root_sender()` helper drives a SELECT clause so the thread's original sender sees admin replies (no recursion — the mig-035 trap), compose sends `team_id: null` for Club Admin, and `getThreads` now includes team-less threads. Confirmed live on localhost against the migrated DB: sending to Club Admin resolved to all 6 admins and appeared in the shared inbox. ✅ **Return path verified live 2026-09-08** (Hewie Duck, coach = non-admin sender, on desktop → messaged Club Admin; Mike Brooke admin replied on mobile; Hewie opened the thread and saw the reply — the root-sender SELECT clause from migration 075 works). Minor UX note (not a data bug): the reply didn't bump/indicate on the sender's thread *list* until the thread was opened — no live/unread signal on the list view; real-time + push behaviour to be assessed on the Capacitor native build |
 | **V1.R Part 1 — Role model & RLS fix** | ✅ **Fully done, live-verified, 2026-09-02** | Make Coach, Stop being Coach, Demote (incl. first-Manager protection both directions), the role-sync trigger + its Coaching-tab follow-up fix, and the caregiver-floor invariant all confirmed live. Nothing outstanding. Surfaced one new, separate, not-yet-fixed bug: "Manage Caregivers" visibility uses the team's age band instead of the person's own — see V1.R's write-up |
 | V1.R Part 2 — Automated data retention & deletion | ⬜ Deferred, own future spec | Competition cleanup clocks, the 12-month "no role" user-deletion job, de-identified performance data, pre-deletion notice/export. Nothing blocks on it today — scoping notes live in `docs/data-retention-scoping.md`, untouched |
 | V1.9 Store + privacy policy | 🟠 Rewrite now confirmed required | Gate before store submission — the child-account model is live now, not hypothetical. Depends on V1.R's retention decisions locking first. `club_settings.app_url` still needs the real store listing at go-live |
@@ -1288,30 +1294,34 @@ Everything above the line is done; this is only what remains.
 
 *Done and cleared from this list:* Streamlined Invites Task 12; the Roster
 "Remove" action (all variants); V1.R Part 1 (role model & RLS, live-verified
-2026-09-02); V1.M "Send to Admins" (fixed 2026-09-04, migration 075 run — one
-live re-test still open, see below); V1.8 admin console (full spec shipped
+2026-09-02); V1.M "Send to Admins" (fixed 2026-09-04, migration 075 run,
+return-path live-verified end-to-end 2026-09-08 — fully closed); V1.8 admin
+console (full spec shipped
 2026-09-04); Gant Tasks 1–9 built; the caregiver age-band bug + the whole
 "smaller bugs / polish" cluster + the email-branding source fix (all
 2026-09-08 — see the 8 September current-state section at the top). See the
 status table above for detail.
 
 **Remaining V1 build work:**
-1. **V1.M messaging — one live verification left:** a non-admin sender seeing
-   an admin's reply (the root-sender SELECT clause). Mechanism built + pushed,
-   not yet tested end-to-end with a second account.
-2. **"Caregiver DOB Correction Threshold" — decision, then build** (parked from
+1. **"Caregiver DOB Correction Threshold" — decision, then build** (parked from
    the Add Player / DOB spec, still open).
-3. **V1.6 invite-page branding** — not started, independent of everything else.
-4. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
+2. **V1.6 invite-page branding** — not started, independent of everything else.
+3. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
    agreed) + RSVP reminder pushes.
-5. **Privacy + retention — the final combined workstream, done LAST** (hard gate
+4. **Privacy + retention — the final combined workstream, done LAST** (hard gate
    before any store submission). Rewrite the privacy policy against everything
    actually built → reconcile with the retention scoping notes → define the
    retention/deletion policy → build it (V1.R Part 2) → fold in Gant's privacy
    section (Task 11). See "Privacy + retention — the final combined V1
    workstream" just below for the full sequencing.
-6. **V1.9 store distribution + privacy** — depends on step 5 locking; needs the
+5. **V1.9 store distribution + privacy** — depends on step 4 locking; needs the
    real store listing in `club_settings.app_url` at go-live.
+
+**Messaging polish to assess on the Capacitor native build (not blocking):** a
+new reply doesn't surface on the *sender's* thread-list until the thread is
+opened (no live/unread indicator on the list). Confirmed harmless to the data
+(the reply loads on open); real-time refresh + push notification behaviour is
+best judged on-device, so parked for the Capacitor messaging pass.
 
 **Smaller bugs / polish — ✅ all cleared 2026-09-08** (`997f650`, `ed55caa`):
 - `teams-api.ts` missing `is_coach` (build-invisible TS error) — fixed.
