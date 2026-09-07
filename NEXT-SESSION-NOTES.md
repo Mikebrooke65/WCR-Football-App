@@ -1245,7 +1245,7 @@ One-line status per item. Detail is in the sections further down.
 | V1.5 Role-aware nav | ✅ DONE | — |
 | V1.6 Invite page branding | ⬜ Not started | Independent |
 | V1.7 RSVP / availability | 🟠 Mostly built | RSVP reminder pushes; caregiver multi-child RSVP build (design already agreed) |
-| V1.8 Admin console correctness pass | 🟠 Scoped 2026-09-04, not built | Redefined (was "feature flags"). Reporting is moving to V2 (hidden at launch, see V2.8). V1.8 is now working through the remaining admin tabs to make them correct — see the detailed "V1.8 — Admin console correctness pass" section below |
+| V1.8 Admin console correctness pass | ✅ **DONE, built + pushed 2026-09-04** | Full 10-task Kiro spec (`.kiro/specs/admin-console-v1.8/`) shipped — flat admin sidebar, Coaching hub on real counts, Users list/detail cleanup, Caregiver Reviews folded into Users, Teams manager column + pending badge + Assign Manager, Competitions split into External Leagues / Club Events with click-throughs + fixtures. Reporting hidden → V2.8. Commits `dfa15dc`, `076fbd9`, `ccb7fea` (+ `9061382` lite/full UI removal). **Left for owner:** one live admin eyeball. Two follow-ups deferred: broaden "Active Coaches" count; V2 coaching-activity dashboard |
 | V1.M Messaging — send to Admins | ✅ **Fixed 2026-09-04 (migration 075 run), send confirmed live** | Root cause was two coupled things: (1) "Club Admin" messages are team-less but `messages.team_id` was NOT NULL and the compose form only auto-fills a team when you're on exactly one — so a multi-team admin sent an empty `team_id` and the insert was rejected (the "nothing happens" repro); (2) the inbox query keyed on team membership, so a team-less admin message wouldn't appear anyway. Fix (migration `075_messages_admin_inbox.sql` + client): `team_id` nullable, INSERT policy allows a team-less message from any authenticated user (contact-the-club path), a `SECURITY DEFINER` `message_thread_root_sender()` helper drives a SELECT clause so the thread's original sender sees admin replies (no recursion — the mig-035 trap), compose sends `team_id: null` for Club Admin, and `getThreads` now includes team-less threads. Confirmed live on localhost against the migrated DB: sending to Club Admin resolved to all 6 admins and appeared in the shared inbox. **Still to verify with a second account:** a non-admin sender seeing an admin's reply (the root-sender SELECT clause) — mechanism built, not yet live-tested end to end |
 | **V1.R Part 1 — Role model & RLS fix** | ✅ **Fully done, live-verified, 2026-09-02** | Make Coach, Stop being Coach, Demote (incl. first-Manager protection both directions), the role-sync trigger + its Coaching-tab follow-up fix, and the caregiver-floor invariant all confirmed live. Nothing outstanding. Surfaced one new, separate, not-yet-fixed bug: "Manage Caregivers" visibility uses the team's age band instead of the person's own — see V1.R's write-up |
 | V1.R Part 2 — Automated data retention & deletion | ⬜ Deferred, own future spec | Competition cleanup clocks, the 12-month "no role" user-deletion job, de-identified performance data, pre-deletion notice/export. Nothing blocks on it today — scoping notes live in `docs/data-retention-scoping.md`, untouched |
@@ -1255,50 +1255,54 @@ One-line status per item. Detail is in the sections further down.
 | **Four Gant bugs found + fixed live-testing, same session (2026-09-03)** | ✅ **Fixed and live-verified** | (1) Tick/Save failed silently: `game_feedback.game_id` is a required FK to `events`, but capture never creates one — `approve()` now creates a minimal ad-hoc `general` event on the fly. (2) The failure in (1) was invisible because `GantReviewModal`/`GantCaptureSheet` only reported errors to a page-level banner sitting BEHIND their own full-screen modal — both now always show an inline error too. (3) A second RLS gap surfaced once (1) was fixed: `gant_outcomes`' insert-then-return pattern needs a SELECT policy for the resolver, not just admins — migration 074, run and confirmed. (4) The real functional bug: a further "Work on" round had no memory of Gant's own prior response, so it read as two disconnected fragments and could regress into asking basic clarifying questions (incl. asking the team's age group, which is already-known data) even after a genuinely good first draft. Fixed by passing `priorResponse` (Gant's latest output, always current across any number of rounds) and `ageGroup` through on every call — live-verified with a 3-round conversation that correctly built on itself each time. See `.kiro/specs/gant-ai-feedback-assistant/tasks.md`'s "Live bugs found and fixed" section for full detail and verification scripts |
 | **Second Gant live-test batch — UX polish + 1 more save bug (2026-09-03)** | ✅ **Fixed, build + tests clean; awaiting repo owner hard-refresh re-test** | Client-side only, no Edge Function redeploy. (5) Latent Save bug that would have defeated bug-(1)'s fix in the real UI: `handleTick` passed `entry.event_id ?? entry.id` — `entry.id` is a `gant_pending_entries` id, not an `events` id, and its truthiness made `approve()` skip the ad-hoc-event creation and insert `game_feedback` with a bogus `game_id` (FK violation on a writable team; RLS error on one you can't write to — exactly the "violates RLS for game_feedback" the owner hit). Now passes `entry.event_id ?? undefined`. (6) Progress Notes team picker offered caregiver-only teams via `getMyTeams`; new `getMyCoachingTeams` returns write-authority teams only (coach/manager/`is_coach`) and the pending queue uses it. (7) `GantCaptureSheet` rewrite: "Done"→"Close", persistent captured-count banner (was a 1.5s fade that looked like a no-op), up-front helper copy, inline discard-confirm when closing with un-captured text. (8) Review screen: when "Add more" has unsaved text, Save is HIDDEN and "Work on" is emphasised (saving would silently discard the addition). (9) Coaching + Games dropdowns now dedupe teams by id (a coach who is also a caregiver on the same team saw it listed twice). Full detail: tasks.md "Second live-test batch" |
 
-**Substantive build work left for V1, in the agreed order** (updated 2026-09-01):
-1. ~~Two quick verification loose ends~~ — ✅ **done, 2026-09-01**: both the
-   migration-063 trigger and the Competitions assign-existing-Manager path
-   are confirmed live. One small new item fell out of this: the
-   assign-existing-Manager confirmation email has a header/body team-name
-   mismatch bug (cosmetic, not yet fixed — see Task 12 item 6 write-up).
-2. ~~Two minor untested Remove variants~~ — ✅ **both done, 2026-09-01**:
-   multi-team removal (confirmed the caregiver link is correctly left
-   alone when it's NOT the child's last team; also surfaced a data-hygiene
-   gap, see the Remove-action write-up) and a plain Coach removing someone
-   else (confirmed identical behaviour to a Manager).
-3. ~~V1.R Part 1 — role model & RLS fix~~ — ✅ **fully done and
-   live-verified, 2026-09-02.** Built, pushed (`v1r-part1.patch` +
-   a same-day follow-up patch for the Coaching-tab gap), all 4 migrations
-   run, and every piece confirmed live: Make Coach (both a plain Player
-   and a Manager gaining Coach authority), Stop being Coach, Demote to
-   Player, first-Manager protection on Demote (checked both directions),
-   and the child-caregiver-floor block. Surfaced one new, separate,
-   not-yet-fixed bug along the way — see the write-up in V1.R's section
-   ("Manage Caregivers" uses the team's age band instead of the person's
-   own). Part 2 (automated data retention/deletion) stays deferred to its
-   own future spec — nothing blocks on it today.
-4. **New, small: fix "Manage Caregivers"/"Add Caregiver" visibility to use
-   the person's own age band, not the team's.** Found live-testing V1.R
-   Part 1's caregiver-floor check, 2026-09-02 — see V1.R's write-up for
-   the full detail. `TeamPage.tsx`'s `isChildBandPlayerRow` checks
+**Substantive build work left for V1, in the agreed order** (updated 2026-09-04).
+Everything above the line is done; this is only what remains.
+
+*Done and cleared from this list:* Streamlined Invites Task 12; the Roster
+"Remove" action (all variants); V1.R Part 1 (role model & RLS, live-verified
+2026-09-02); V1.M "Send to Admins" (fixed 2026-09-04, migration 075 run — one
+live re-test still open, see below); V1.8 admin console (full spec shipped
+2026-09-04); Gant Tasks 1–9 built. See the status table above for detail.
+
+**Remaining V1 build work:**
+1. **Manage Caregivers / Add Caregiver visibility — use the person's own age
+   band, not the team's.** `TeamPage.tsx`'s `isChildBandPlayerRow` checks
    `roster.ageBand === 'child'` (team-level) instead of the per-row
-   `ageBandFor(...)` the contact display already uses correctly. Currently
-   blocks caregiver management entirely for a real child registered on an
-   Open/adult team. Small, well-understood fix, not yet built.
-5. **"Caregiver DOB Correction Threshold" decision + build** (parked from
+   `ageBandFor(...)` the contact display already uses. Currently blocks
+   caregiver management for a real child on an Open/adult team. Small,
+   well-understood, not built. (Found live-testing V1.R Part 1 — see V1.R's
+   write-up.)
+2. **V1.M messaging — one live verification left:** a non-admin sender seeing
+   an admin's reply (the root-sender SELECT clause). Mechanism built + pushed,
+   not yet tested end-to-end with a second account.
+3. **"Caregiver DOB Correction Threshold" — decision, then build** (parked from
    the Add Player / DOB spec, still open).
-6. V1.M "Send to Admins" messaging bug — worth doing alongside step 3
-   given the conceptual overlap, even though it's a separate build.
-7. **Privacy policy rewrite** for the now-live child-account model, plus
-   re-examining the Play Console audience declaration — hard gate before
-   store submission, depends on step 3's retention decisions locking.
-8. V1.6 invite-page branding.
-9. V1.7 caregiver multi-child RSVP build + reminder pushes.
-10. V1.8 feature flags.
-11. Small standalone polish item, not yet scheduled: `AddPlayerModal.tsx`'s
-    `handleContinue` doesn't scroll to or surface a below-the-fold
-    validation error — see Task 12 item 6 write-up. Repo owner hasn't yet
-    said whether to fix now or queue.
+4. **V1.6 invite-page branding** — not started, independent of everything else.
+5. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build (design
+   agreed) + RSVP reminder pushes.
+6. **Privacy + retention — the final combined workstream, done LAST** (hard gate
+   before any store submission). Rewrite the privacy policy against everything
+   actually built → reconcile with the retention scoping notes → define the
+   retention/deletion policy → build it (V1.R Part 2) → fold in Gant's privacy
+   section (Task 11). See "Privacy + retention — the final combined V1
+   workstream" just below for the full sequencing.
+7. **V1.9 store distribution + privacy** — depends on step 6 locking; needs the
+   real store listing in `club_settings.app_url` at go-live.
+
+**Smaller bugs / polish (not yet scheduled):**
+- `teams-api.ts` line 168 — a real TS type error (missing `is_coach` on
+  `TeamMemberWithTeam`), invisible to `npm run build` (Vite doesn't type-check).
+  Still open.
+- Confirmation email header/body team-name mismatch on the assign-existing-
+  Manager flow (cosmetic — header shows wrong team name). Not fixed.
+- `AddPlayerModal.tsx`'s `handleContinue` doesn't scroll to / surface a
+  below-the-fold validation error. Not scheduled.
+- Broaden the desktop Coaching "Active Coaches" count to coach-authority
+  (`team_members` role='coach' OR `is_coach`) — follow-up logged during V1.8.
+
+**Verification owed (not build):** the V1.8 live admin eyeball (Teams
+manager/pending, assign/invite, Competitions tabs + click-throughs, fixtures
+link); confirm Gant Tasks 8–9 landed in the repo.
 
 Everything else (V1.1b iOS, V1.T Friendly Manager import) is blocked on
 hardware or an external data export, not build work.
@@ -1344,18 +1348,20 @@ V2/phase-2 backlog (nothing to build for V1). Task 11 = the privacy section,
 now merged into the workstream above. Task 0 (coach guardrails refinement) is
 the ongoing non-code loop, now enabled by the desktop admin screen (Task 8).
 
-### V1.8 — Admin console correctness pass (scoped 2026-09-04)
+### V1.8 — Admin console correctness pass — ✅ DONE (built + pushed 2026-09-04)
 
-**Redefined.** V1.8 was "feature flags"; it's now a correctness pass over the
-desktop admin tabs. The only thing being flagged/hidden is **Reporting**, which
-moves to **V2 (see V2.8)** — it's the biggest immature surface and not needed
-for the trial. Everything else stays in V1, but several admin tabs need
-functional work before launch. Desktop is confirmed **Admin-only for V1**, so
-the sidebar's "Main/Admin" split is now purely visual grouping (kept as a
-scanning aid, no permission meaning).
+**Built as a full Kiro spec (`.kiro/specs/admin-console-v1.8/`, 10 tasks) and
+pushed to `kiro/prototype`** — commits `dfa15dc`, `076fbd9`, `ccb7fea`, plus
+`9061382` (removed the vestigial lite/full UI — see the lite/full note in
+`docs/data-retention-scoping.md`). Full detail in `CHANGELOG.md` (2026-09-04
+"V1.8: Admin desktop console rework") and the spec's `tasks.md`. Desktop is
+confirmed **Admin-only for V1**; the sidebar is now one flat list (the old
+Main/Admin split is gone entirely, not just visual). **Left for the owner:** one
+live admin eyeball of the real-data bits. Two follow-ups deferred (in the spec's
+Deferred list): broaden the "Active Coaches" count to coach-authority; V2
+coaching-activity dashboard.
 
-Scope (all found by the repo owner working through the live admin console
-2026-09-04; **documented here, not yet built**):
+The original scope below — all now built:
 
 1. **Reporting → hidden for V1, deferred to V2.8.** The 6-page suite stays in
    the codebase, just removed from the admin nav + routes at launch via a
@@ -1367,11 +1373,14 @@ Scope (all found by the repo owner working through the live admin console
    what. They're genuinely different (Competitions = create/edit a
    league/club-tournament entity and invite teams in — the *setup* side;
    Tournaments = view fixtures/standings for club-run tournaments — the *run*
-   side). Decide clearer labels and/or short descriptions (not a merge). Open.
+   side). ✅ Resolved by restructuring Competitions into **External Leagues /
+   Club Events** and dropping Tournaments from the top-level nav — fixtures are
+   now reached via a Club Event's "Fixtures & standings" button, so the two
+   adjacent look-alike items no longer exist.
 
 3. **Caregiver Reviews probably belongs under Users**, not as its own
-   top-level admin tab. Consolidate the `admin-action-items` (Caregiver
-   Reviews) surface into the Users area. Open.
+   top-level admin tab. ✅ Done — folded into the Users area as a tab with a
+   pending count (Task 5); nav link + standalone route removed.
 
 4. **Teams page (admin) — several fixes.** This is the page that lists all
    teams and lets you select one to edit.
@@ -1391,10 +1400,9 @@ Scope (all found by the repo owner working through the live admin console
    - **Assign Manager belongs here.** The team-edit view (selecting a team on
      this page) is where an "Assign Manager" action should live/be captured.
 
-**Next step for V1.8:** build items 2–4 (item 1 is done). To be picked up after
-the repo owner's current priority, V1.M. Worth a dedicated Kiro spec given the
-Teams-page work has real data-model/RLS surface (pending state, manager
-display, assign-manager).
+**V1.8 outcome:** all four scope items shipped (item 4's Teams-page work —
+pending stamp + date, manager column, Assign Manager in the team-edit modal — is
+done, cap-aware). Only the live admin eyeball remains.
 
 **Gant (AI coaching feedback assistant) — PULLED FORWARD AND BUILT INTO V1
 (2026-09-04).** No longer "being considered" — it was accelerated ahead of its
@@ -1406,10 +1414,14 @@ ongoing refinement loop against the live admin screen rather than a pre-build
 gate. Remaining Gant scope is V2/phase-2 only — see the refreshed V2.7 section
 further down.
 
-### PLAN FOR NEXT SESSION (updated 2026-08-30)
+### Task 12 verification log — historical (all items ✅ done)
 
-**Do first — deploy item 3's fix and confirm it live, then finish items
-4-6.** Automated checks are already clean on the live head. Items 1 and 2
+> **Superseded.** This was the 2026-08-30 "plan for next session" and is kept
+> only as the verification record for Streamlined Invites Task 12 — every item
+> below is now done and confirmed live. **For what's actually left, see the
+> "Remaining V1 build work" list higher up.**
+
+**Item history:** Automated checks were clean on the live head. Items 1 and 2
 are both **✅ fully done**. Item 2 took 6 patches (`6dcc185..dc499b5`),
 migration 059, both Edge Functions redeployed, migration 060 (an
 undocumented live RLS policy blocked a caregiver from reading their
