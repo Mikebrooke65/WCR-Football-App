@@ -201,6 +201,24 @@ Grounded against the current schema/conventions. Brief, to help the decisions.
   email + export window needs a real send path (have it) and a real reply/contact
   address (the open privacy-inbox decision). Worth bundling those.
 
+- **`user_type` (lite/full) folds into this work (decided 2026-09-04).** Review
+  during the V1.8 admin console rework found `user_type` is effectively
+  vestigial: it does **not** gate nav, permissions, or RLS (nav is explicitly
+  role-based; `resolveCapabilities` and the roster actions read `role` +
+  `team_members`, never `user_type`). Its only behavioural hook is
+  `competitionsApi.cleanupLiteUsers`, which on a closed Club Tournament flips
+  `users.active = false` for everyone tagged `lite` — a blunt, account-wide
+  sweep keyed off a flag, exactly the thing this retention model replaces with
+  **team-membership-scoped** removal (dissociate the person's `team_members`
+  rows for that competition's teams; Q3/Q8 above). Action taken now: the V1.8
+  Users admin **dropped the "Lite" badge, the Full/Lite type filter, and the
+  "Promote to full" button** (they signalled a capability tier that doesn't
+  exist). Left in place for the retention build to supersede: the `user_type`
+  column, `rolesApi.promoteToFullUser`, and the "Cleanup Lite Users" button on
+  closed Club Tournaments. When retention lands, retire `user_type` (or repurpose
+  it as a deliberate tier if a real lite restriction is ever wanted) and replace
+  the cleanup sweep with team-scoped dissociation. Ties directly to Q8.
+
 **Rough build shape, when it happens:** a scheduled job (Supabase cron / pg_cron or
 a scheduled Edge Function) that (1) closes/deletes competition-instance data on its
 clock, (2) dissociates roles and flags users inactive, (3) after the grace window

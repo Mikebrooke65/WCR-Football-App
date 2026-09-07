@@ -90,7 +90,6 @@ export function UserManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [filterUserType, setFilterUserType] = useState('all');
   const [userMemberships, setUserMemberships] = useState<Record<string, TeamMemberWithTeam[]>>({});
   const [pendingInvites, setPendingInvites] = useState<InviteCode[]>([]);
   const [editMemberships, setEditMemberships] = useState<TeamMemberWithTeam[]>([]);
@@ -216,8 +215,7 @@ export function UserManagement() {
     const matchesRole = filterRole === 'all' || user.role === filterRole;
     const matchesStatus =
       filterStatus === 'all' || (filterStatus === 'active' ? user.active : !user.active);
-    const matchesUserType = filterUserType === 'all' || user.user_type === filterUserType;
-    return matchesSearch && matchesRole && matchesStatus && matchesUserType;
+    return matchesSearch && matchesRole && matchesStatus;
   });
 
   const handleOpenModal = async (user?: any) => {
@@ -489,16 +487,6 @@ export function UserManagement() {
     }
   };
 
-  const handlePromoteToFull = async (userId: string) => {
-    if (!confirm('Promote this lite user to full membership?')) return;
-    try {
-      await rolesApi.promoteToFullUser(userId);
-      fetchUsers();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -612,16 +600,6 @@ export function UserManagement() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
-
-          <select
-            value={filterUserType}
-            onChange={(e) => setFilterUserType(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0091f3]"
-          >
-            <option value="all">All Types</option>
-            <option value="full">Full Members</option>
-            <option value="lite">Lite Users</option>
-          </select>
         </div>
         )}
       </div>
@@ -702,9 +680,6 @@ export function UserManagement() {
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleBadgeColor(user.role)}`}>
                       {roleOptions.find((r) => r.value === user.role)?.label || user.role}
                     </span>
-                    {user.user_type === 'lite' && (
-                      <span className="ml-1 px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Lite</span>
-                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
@@ -726,14 +701,6 @@ export function UserManagement() {
                     >
                       Edit
                     </button>
-                    {user.user_type === 'lite' && (
-                      <button
-                        onClick={() => handlePromoteToFull(user.id)}
-                        className="text-green-600 hover:text-green-800"
-                      >
-                        Promote
-                      </button>
-                    )}
                   </td>
                 </tr>
               ))}
