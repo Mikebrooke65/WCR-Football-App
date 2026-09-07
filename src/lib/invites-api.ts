@@ -7,6 +7,7 @@ import type {
   InviteCodeValidation,
   LiteRegistrationData,
   InvitePlayerData,
+  Team,
 } from '../types/database';
 
 // The Success Screen and this wrapper share one result shape. It lives in
@@ -127,6 +128,22 @@ class InvitesApi extends ApiClient {
       return { valid: false, error: 'expired', invite: data };
     }
 
+    // The `team:teams(*)` embed above comes back null for an ANONYMOUS invite
+    // visitor (confirmed 2026-09-08 via the raw response) — a PostgREST
+    // embed-vs-RLS quirk on the teams table, even though a DIRECT read of the
+    // team succeeds for anon under migration 045. So fall back to a direct
+    // query by team_id when the embed is empty (authenticated callers still get
+    // it straight from the embed). Same approach the competition read uses.
+    let team = (data.team as Team | null) ?? null;
+    if (!team && data.team_id) {
+      const { data: t } = await this.supabase
+        .from('teams')
+        .select('*')
+        .eq('id', data.team_id)
+        .maybeSingle();
+      if (t) team = t as Team;
+    }
+
     // Competition name (V1.6) via a separate, anon-readable query (migration
     // 076) — only when the invite names one. Best-effort: a failure just omits
     // the competition context, never blocks validation.
@@ -140,7 +157,7 @@ class InvitesApi extends ApiClient {
       if (comp?.name) competition = { name: comp.name };
     }
 
-    return { valid: true, invite: data, team: data.team, competition };
+    return { valid: true, invite: data, team, competition };
   }
 
   /**
