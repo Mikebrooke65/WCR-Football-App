@@ -415,6 +415,12 @@ export interface InviteCodeValidation {
   error?: 'invalid' | 'expired' | 'redeemed' | 'already_member';
   invite?: InviteCode;
   team?: Team;
+  // The competition the invite points at, when it names one (invite_codes
+  // .competition_id). Only the name is needed, for the invite landing page's
+  // "Join the {competition}" context (V1.6). Anon visitors can read it via
+  // migration 076's scoped policy. Null/absent when the invite has no
+  // competition or the lookup returned nothing.
+  competition?: { name: string } | null;
 }
 
 // Lite user registration data

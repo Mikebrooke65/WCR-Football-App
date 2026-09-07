@@ -103,7 +103,7 @@ class InvitesApi extends ApiClient {
   async validateInviteCode(code: string): Promise<InviteCodeValidation> {
     const { data, error } = await this.supabase
       .from('invite_codes')
-      .select('*, team:teams(*)')
+      .select('*, team:teams(*), competition:competitions(name)')
       .eq('code', code)
       .single();
 
@@ -121,7 +121,16 @@ class InvitesApi extends ApiClient {
       return { valid: false, error: 'expired', invite: data };
     }
 
-    return { valid: true, invite: data, team: data.team };
+    // `competition` is the embed from `competitions(name)` — an object or null.
+    // Guard the array shape defensively (supabase types a to-one embed as an
+    // object, but has been known to surface arrays) so the landing page always
+    // gets `{ name } | null`.
+    const competitionEmbed = (data as { competition?: unknown }).competition;
+    const competition = Array.isArray(competitionEmbed)
+      ? (competitionEmbed[0] as { name: string } | undefined) ?? null
+      : ((competitionEmbed as { name: string } | null) ?? null);
+
+    return { valid: true, invite: data, team: data.team, competition };
   }
 
   /**

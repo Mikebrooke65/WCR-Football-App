@@ -314,13 +314,13 @@ export function LiteLandingPage() {
     const err = errorMessages[validation?.error || 'invalid'];
 
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
+      <InvitePageShell branding={branding}>
+        <div className="text-center">
           <div className="text-4xl mb-4">⚠️</div>
           <h1 className="text-xl font-bold mb-2">{err.title}</h1>
           <p className="text-gray-600">{err.message}</p>
         </div>
-      </div>
+      </InvitePageShell>
     );
   }
 
@@ -337,13 +337,13 @@ export function LiteLandingPage() {
   // this screen — nothing to retry until the Manager acts.
   if (bounceToManager) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
+      <InvitePageShell branding={branding}>
+        <div className="text-center">
           <div className="text-4xl mb-4">🧑‍🤝‍🧑</div>
           <h1 className="text-xl font-bold mb-2">Let's get your Manager to help</h1>
           <p className="text-gray-600">{bounceToManager}</p>
         </div>
-      </div>
+      </InvitePageShell>
     );
   }
 
@@ -355,10 +355,14 @@ export function LiteLandingPage() {
   if (validation.valid && recipientExists) {
     const roleLabel = describeIntendedRole(validation.invite?.intended_role);
     const teamLabel = `${validation.team?.age_group ?? ''} ${validation.team?.name ?? ''}`.trim();
+    const existingCompetitionName = validation.competition?.name?.trim() || null;
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
+      <InvitePageShell branding={branding}>
+        <div className="text-center">
           <h1 className="text-xl font-bold mb-2">You already have an account</h1>
+          {existingCompetitionName && (
+            <p className="text-sm text-gray-500 mb-1">{existingCompetitionName}</p>
+          )}
           <p className="text-gray-600 mb-6">
             Join {teamLabel || 'this team'} as {roleLabel}?
           </p>
@@ -375,22 +379,47 @@ export function LiteLandingPage() {
             {joining ? 'Joining...' : 'Join'}
           </button>
         </div>
-      </div>
+      </InvitePageShell>
     );
   }
 
   // Registration form
+  const competitionName = validation.competition?.name?.trim() || null;
+  const teamLabel = `${validation.team?.age_group ?? ''} ${validation.team?.name ?? ''}`.trim();
+  const clubName = branding.club_name?.trim() || null;
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full">
-        <div className="text-center mb-6">
-          <h1 className="text-xl font-bold">Join {validation.team?.age_group} {validation.team?.name}</h1>
-          <p className="text-sm text-gray-500 mt-1">Create your account to get started</p>
-        </div>
+    <InvitePageShell branding={branding}>
+      <div className="text-center mb-5">
+        {competitionName ? (
+          <>
+            <h1 className="text-xl font-bold">Join {competitionName}</h1>
+            {teamLabel && (
+              <p className="text-sm text-gray-600 mt-1">
+                with <span className="font-medium text-gray-800">{teamLabel}</span>
+              </p>
+            )}
+          </>
+        ) : (
+          <h1 className="text-xl font-bold">Join {teamLabel || 'your team'}</h1>
+        )}
+      </div>
 
-        {formError && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{formError}</div>}
+      {/* V1.6 — orient the person before the form: what this is, and what
+          happens once they're in. */}
+      <div className="mb-5 bg-gray-50 rounded-lg p-3 text-sm text-gray-600 space-y-1">
+        <p>
+          This is {clubName ? <span className="font-medium text-gray-800">{clubName}</span> : 'your club'}'s
+          team app — where your team shares its schedule, availability and messages.
+        </p>
+        <p>
+          Create your account below to join. Managers and coaches can add their
+          own players once they're in.
+        </p>
+      </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+      {formError && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{formError}</div>}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <div className="grid grid-cols-2 gap-3">
               <input type="text" placeholder="First name" value={form.first_name}
@@ -523,6 +552,58 @@ export function LiteLandingPage() {
             {submitting ? 'Creating account...' : 'Create Account'}
           </button>
         </form>
+    </InvitePageShell>
+  );
+}
+
+/**
+ * Branded shell for the invite-landing states an anonymous visitor sees before
+ * (and instead of) the Success Screen — the registration form, the error
+ * screens, the "bounce to Manager" outcome, and the existing-user "Join"
+ * confirmation (V1.6 "Branding & Context").
+ *
+ * CLUB-AGNOSTIC (same rule as SuccessScreen / Req 1.7): the logo, club name and
+ * accent colour all come from `branding` (`useClubBranding()` → `club_settings`,
+ * now readable by anon via migration 076). Every branded element is omitted when
+ * its value is absent — with no branding at all it degrades to a neutral header
+ * so the page still looks intentional rather than broken. Nothing is hardcoded.
+ */
+function InvitePageShell({
+  branding,
+  children,
+}: {
+  branding: ClubBranding;
+  children: React.ReactNode;
+}) {
+  const accent = branding.primary_color?.trim() || null;
+  const headerStyle = accent ? { backgroundColor: accent } : undefined;
+  // Accent header when the club supplies a colour; a neutral slate header
+  // otherwise (never another club's colour, and never a bare white gap).
+  const headerClass = `px-6 py-5 text-center${accent ? '' : ' bg-slate-800'}`;
+  const clubName = branding.club_name?.trim() || null;
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden w-full max-w-md">
+        <div className={headerClass} style={headerStyle}>
+          {branding.logo_url && (
+            <img
+              src={branding.logo_url}
+              alt={clubName ?? ''}
+              className="h-12 mx-auto object-contain"
+            />
+          )}
+          {clubName ? (
+            <p className={`text-white font-semibold${branding.logo_url ? ' mt-2' : ''}`}>
+              {clubName}
+            </p>
+          ) : (
+            !branding.logo_url && (
+              <p className="text-white font-semibold">You've been invited</p>
+            )
+          )}
+        </div>
+        <div className="p-8">{children}</div>
       </div>
     </div>
   );
