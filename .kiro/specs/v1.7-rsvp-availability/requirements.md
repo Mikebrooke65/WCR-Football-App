@@ -98,11 +98,12 @@ stale.
 
 ---
 
-## Open decisions to lock (see design.md for proposed defaults)
-- **D-B1** — exact reminder lead time (proposed 24h) and schedule cadence
-  (proposed hourly).
-- **D-B2** — caregiver reminder granularity: one push per caregiver (proposed) vs
-  one per un-responded child.
-- **D-B3** — scheduling mechanism: `pg_cron` + `pg_net` calling an Edge Function
-  (proposed, mirrors migration 058's cron precedent) vs Supabase scheduled
-  function.
+## Decisions — ✅ LOCKED 2026-09-08 (repo owner confirmed)
+- **D-B1** — reminder lead time **24h before** the event; scheduler runs
+  **hourly**, targeting events starting in the (24h, 25h] window so each is
+  caught once.
+- **D-B2** — **one push per caregiver** naming the event (tap in to RSVP each
+  child), not one push per un-responded child.
+- **D-B3** — scheduling via **`pg_cron` + `pg_net`** calling the Edge Function
+  (mirrors migration 058's cron precedent). Supabase scheduled function is the
+  only fallback if `pg_net` can't be enabled.

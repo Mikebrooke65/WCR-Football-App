@@ -45,9 +45,9 @@ push).
 
 ## Piece B — RSVP reminder push notifications
 
-- [ ] B1. **Confirm D-B1/D-B2/D-B3 defaults** (design B.1) with the repo owner if
-  not already locked: 24h lead, hourly cadence, one push per caregiver, pg_cron +
-  pg_net → Edge Function.
+- [x] B1. **Decisions locked 2026-09-08** (design B.1): 24h lead, hourly cadence,
+  one push per caregiver, `pg_cron` + `pg_net` → Edge Function. No further
+  sign-off needed — build to these.
 - [ ] B2. **"Owes a response" logic** (`src/lib/rsvp-reminders-logic.ts` + test,
   or shared server logic): given a roster + RSVP rows (by `subject_user_id`),
   return who still owes a response. Pure + tested.

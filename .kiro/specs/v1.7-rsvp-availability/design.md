@@ -119,14 +119,15 @@ resolveRsvpIdentities(input: {
 
 ## Piece B — RSVP reminder push notifications
 
-### B.1 Locked defaults (confirm before build if you disagree)
+### B.1 Locked decisions (✅ confirmed by repo owner 2026-09-08)
 - **D-B1:** lead time **24h before** the event; scheduler runs **hourly** and
   targets events starting in the (24h, 25h] window so each event is caught once.
 - **D-B2:** **one push per caregiver** (not one per child) — "Reminder: RSVP for
   {event} — {team}" — tapping opens the event where they can RSVP each child.
 - **D-B3:** **`pg_cron` + `pg_net`** invoking a new Edge Function
   `send-rsvp-reminders` (mirrors migration 058's cron precedent; keeps the FCM
-  send in an Edge Function alongside `send-message-push`).
+  send in an Edge Function alongside `send-message-push`). Supabase scheduled
+  function only if `pg_net` can't be enabled.
 
 ### B.2 New Edge Function — `supabase/functions/send-rsvp-reminders`
 Invoked on schedule (service role). For each event starting in the target window:
