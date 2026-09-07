@@ -102,15 +102,16 @@ class InvitesApi extends ApiClient {
 
   /** Validate an invite code — returns status and details */
   async validateInviteCode(code: string): Promise<InviteCodeValidation> {
-    // Keep the ORIGINAL single-embed shape for the team — proven to work for
-    // an anonymous visitor (migration 045). 2026-09-08: adding a second embed
-    // (`competition:competitions(name)`) to this same select made the `team`
-    // embed come back null for anon (confirmed via the raw response), while the
-    // competition embed populated — so the two are fetched separately now
-    // rather than chasing why the combined embed misbehaves.
+    // No embeds here. 2026-09-08: the `team:teams(*)` embed returns empty for an
+    // ANONYMOUS invite visitor (confirmed via the raw response), even though a
+    // DIRECT read of the team succeeds for anon (proven with `SET ROLE anon`:
+    // team_visible = 1). The competition read has the same requirement and works
+    // as a plain direct query — so the team is fetched the exact same way, and
+    // both are pulled by id below rather than relying on PostgREST embedding
+    // (which misbehaves for anon on the teams table specifically).
     const { data, error } = await this.supabase
       .from('invite_codes')
-      .select('*, team:teams(*)')
+      .select('*')
       .eq('code', code)
       .single();
 
@@ -128,14 +129,11 @@ class InvitesApi extends ApiClient {
       return { valid: false, error: 'expired', invite: data };
     }
 
-    // The `team:teams(*)` embed above comes back null for an ANONYMOUS invite
-    // visitor (confirmed 2026-09-08 via the raw response) — a PostgREST
-    // embed-vs-RLS quirk on the teams table, even though a DIRECT read of the
-    // team succeeds for anon under migration 045. So fall back to a direct
-    // query by team_id when the embed is empty (authenticated callers still get
-    // it straight from the embed). Same approach the competition read uses.
-    let team = (data.team as Team | null) ?? null;
-    if (!team && data.team_id) {
+    // Team via a plain direct query by id — the same mechanism the competition
+    // read uses, proven to work for an anonymous visitor (migration 045 grants
+    // the read; PostgREST embedding was the only thing failing).
+    let team: Team | null = null;
+    if (data.team_id) {
       const { data: t } = await this.supabase
         .from('teams')
         .select('*')
