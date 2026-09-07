@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router';
 import { tournamentApi } from '../../lib/tournament-api';
 import type { TournamentConfig as TournamentConfigType, GenerateFixturesParams, StandingsRowWithName } from '../../lib/tournament-api';
 import type { Competition, Event } from '../../types/database';
@@ -7,6 +8,7 @@ import { FixtureList } from '../../components/tournament/FixtureList';
 import { TournamentConfig } from '../../components/tournament/TournamentConfig';
 
 export function DesktopTournamentPage() {
+  const [searchParams] = useSearchParams();
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [selectedComp, setSelectedComp] = useState<Competition | null>(null);
   const [fixtures, setFixtures] = useState<Event[]>([]);
@@ -51,6 +53,19 @@ export function DesktopTournamentPage() {
       setDataLoading(false);
     }
   }, []);
+
+  // V1.8: deep link from a Club Event ("Fixtures & standings" → ?comp=<id>).
+  // Auto-select that competition once the list has loaded.
+  useEffect(() => {
+    const compId = searchParams.get('comp');
+    if (compId && !selectedComp) {
+      const comp = competitions.find((c) => c.id === compId);
+      if (comp) {
+        setSelectedComp(comp);
+        loadCompetitionData(comp);
+      }
+    }
+  }, [competitions, searchParams, selectedComp, loadCompetitionData]);
 
   const handleSelectCompetition = (compId: string) => {
     const comp = competitions.find(c => c.id === compId) ?? null;

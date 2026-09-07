@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useSearchParams } from 'react-router';
 import { getDefaultHalfDuration } from '../../lib/attendance-utils';
 import { teamsApi } from '../../lib/teams-api';
+import { rolesApi } from '../../lib/roles-api';
+import { invitesApi } from '../../lib/invites-api';
 
 interface Team {
   id: string;
@@ -45,6 +48,7 @@ interface Coach {
 
 export function TeamsManagement() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [teams, setTeams] = useState<Team[]>([]);
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,6 +59,19 @@ export function TeamsManagement() {
   const [filterDivision, setFilterDivision] = useState('all');
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<Record<string, TeamMember[]>>({});
+  // V1.8: first manager name per team, and pending teams (invited manager not
+  // yet joined) keyed to the invite's sent-date.
+  const [managerByTeam, setManagerByTeam] = useState<Record<string, string>>({});
+  const [pendingByTeam, setPendingByTeam] = useState<Record<string, string>>({});
+
+  // V1.8 Assign Manager (edit modal). Cap is 2/team (migration 048 trigger).
+  const [editManagers, setEditManagers] = useState<{ membershipId: string; name: string }[]>([]);
+  const [managerSearch, setManagerSearch] = useState('');
+  const [managerSearchResults, setManagerSearchResults] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
+  const [managerInviteEmail, setManagerInviteEmail] = useState('');
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -75,6 +92,19 @@ export function TeamsManagement() {
     fetchCoaches();
   }, []);
 
+  // V1.8: deep link from Competitions ("click a team → view it here"). Once
+  // teams have loaded, expand the requested team + load its members, then
+  // clear the param.
+  useEffect(() => {
+    const teamId = searchParams.get('team');
+    if (teamId && teams.some((t) => t.id === teamId)) {
+      setExpandedTeamId(teamId);
+      if (!teamMembers[teamId]) void fetchTeamMembers(teamId);
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teams, searchParams]);
+
   const fetchTeams = async () => {
     try {
       setIsLoading(true);
@@ -87,11 +117,188 @@ export function TeamsManagement() {
         .order('name');
 
       if (error) throw error;
-      setTeams(data || []);
+      const teamList = data || [];
+      setTeams(teamList);
+      await loadManagersAndPending(teamList.map((t: any) => t.id as string));
     } catch (error) {
       console.error('Error fetching teams:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * Managers (first per team) + pending status (V1.8). Pending rule (D1): a
+   * team is "pending" when it has an unredeemed, unexpired MANAGER invite AND
+   * no manager member has joined yet. `invite_codes` is authenticated-readable;
+   * the shown date is the (most recent) outstanding invite's created_at.
+   */
+  const loadManagersAndPending = async (teamIds: string[]) => {
+    if (teamIds.length === 0) {
+      setManagerByTeam({});
+      setPendingByTeam({});
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const [membersRes, invitesRes] = await Promise.all([
+      supabase
+        .from('team_members')
+        .select('team_id, user:users(first_name, last_name)')
+        .in('team_id', teamIds)
+        .eq('role', 'manager'),
+      supabase
+        .from('invite_codes')
+        .select('team_id, created_at')
+        .in('team_id', teamIds)
+        .eq('intended_role', 'manager')
+        .is('redeemed_by', null)
+        .gte('expires_at', nowIso),
+    ]);
+
+    const managers: Record<string, string> = {};
+    const hasManager = new Set<string>();
+    for (const row of (membersRes.data as any[]) ?? []) {
+      hasManager.add(row.team_id);
+      if (!managers[row.team_id] && row.user) {
+        managers[row.team_id] = `${row.user.first_name} ${row.user.last_name}`.trim();
+      }
+    }
+
+    const inviteDate: Record<string, string> = {};
+    for (const row of (invitesRes.data as any[]) ?? []) {
+      if (!inviteDate[row.team_id] || row.created_at > inviteDate[row.team_id]) {
+        inviteDate[row.team_id] = row.created_at;
+      }
+    }
+
+    const pending: Record<string, string> = {};
+    for (const [teamId, date] of Object.entries(inviteDate)) {
+      if (!hasManager.has(teamId)) pending[teamId] = date;
+    }
+
+    setManagerByTeam(managers);
+    setPendingByTeam(pending);
+  };
+
+  // -- Assign Manager (V1.8) -------------------------------------------------
+
+  const loadEditTeamManagers = async (teamId: string) => {
+    const { data } = await supabase
+      .from('team_members')
+      .select('id, user:users(first_name, last_name)')
+      .eq('team_id', teamId)
+      .eq('role', 'manager');
+    setEditManagers(
+      ((data as any[]) ?? []).map((r) => ({
+        membershipId: r.id,
+        name: r.user ? `${r.user.first_name} ${r.user.last_name}`.trim() : 'Unknown',
+      }))
+    );
+  };
+
+  const resetAssignManager = () => {
+    setManagerSearch('');
+    setManagerSearchResults([]);
+    setManagerInviteEmail('');
+    setAssignMsg(null);
+    setAssignError(null);
+  };
+
+  const handleManagerSearch = async (term: string) => {
+    setManagerSearch(term);
+    setAssignError(null);
+    const q = term.trim();
+    if (q.length < 2) {
+      setManagerSearchResults([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('users')
+      .select('id, first_name, last_name')
+      .eq('active', true)
+      .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+      .order('last_name')
+      .limit(8);
+    setManagerSearchResults((data as any[]) ?? []);
+  };
+
+  const refreshAfterManagerChange = async (teamId: string) => {
+    await loadEditTeamManagers(teamId);
+    await loadManagersAndPending(teams.map((t) => t.id));
+  };
+
+  const handleAssignExistingManager = async (userId: string, displayName: string) => {
+    if (!editingTeam) return;
+    setAssignBusy(true);
+    setAssignError(null);
+    setAssignMsg(null);
+    try {
+      // The person may already be on this team in another role — promote that
+      // membership rather than inserting a duplicate (UNIQUE(team_id,user_id)).
+      const { data: existing } = await supabase
+        .from('team_members')
+        .select('id')
+        .eq('team_id', editingTeam.id)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (existing?.id) {
+        await rolesApi.updateTeamMemberRole(existing.id, 'manager');
+      } else {
+        await rolesApi.addTeamMember(editingTeam.id, userId, 'manager');
+      }
+      await refreshAfterManagerChange(editingTeam.id);
+      setManagerSearch('');
+      setManagerSearchResults([]);
+      setAssignMsg(`${displayName} is now a manager of this team.`);
+    } catch (e: any) {
+      const msg = e?.message ?? '';
+      setAssignError(
+        msg.includes('manager_cap_reached')
+          ? 'This team already has the maximum of 2 managers — remove one first.'
+          : msg || 'Could not assign manager.'
+      );
+    } finally {
+      setAssignBusy(false);
+    }
+  };
+
+  const handleInviteManager = async () => {
+    if (!editingTeam) return;
+    const email = managerInviteEmail.trim();
+    if (!email) return;
+    setAssignBusy(true);
+    setAssignError(null);
+    setAssignMsg(null);
+    try {
+      const invite = await invitesApi.generateInviteCode(editingTeam.id, email, undefined, undefined, 'manager');
+      // If they already have an account, complete the join immediately (same
+      // path CompetitionsPage uses); otherwise the invite link is theirs to
+      // redeem. Either way the team shows as pending until they join.
+      let joined = false;
+      try {
+        if (await invitesApi.checkInviteRecipient(invite.code)) {
+          await invitesApi.joinExistingAccount(invite.code, email);
+          joined = true;
+        }
+      } catch {
+        joined = false;
+      }
+      await refreshAfterManagerChange(editingTeam.id);
+      setManagerInviteEmail('');
+      setAssignMsg(
+        joined
+          ? `${email} already had an account and has been added as a manager.`
+          : `Manager invite sent to ${email}. The team stays pending until they join.`
+      );
+    } catch (e: any) {
+      const msg = e?.message ?? '';
+      setAssignError(
+        msg.includes('manager_cap_reached')
+          ? 'This team already has the maximum of 2 managers — remove one first.'
+          : msg || 'Could not send the manager invite.'
+      );
+    } finally {
+      setAssignBusy(false);
     }
   };
 
@@ -172,6 +379,7 @@ export function TeamsManagement() {
   const handleOpenModal = (team?: Team) => {
     if (team) {
       setEditingTeam(team);
+      void loadEditTeamManagers(team.id);
       const defaultHalf = getDefaultHalfDuration(team.age_group);
       setFormData({
         name: team.name,
@@ -185,6 +393,7 @@ export function TeamsManagement() {
       });
     } else {
       setEditingTeam(null);
+      setEditManagers([]);
       setFormData({
         name: '',
         age_group: 'U9',
@@ -197,12 +406,15 @@ export function TeamsManagement() {
       });
     }
     setConfigErrors({});
+    resetAssignManager();
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingTeam(null);
+    setEditManagers([]);
+    resetAssignManager();
   };
 
   const handleSave = async () => {
@@ -386,6 +598,9 @@ export function TeamsManagement() {
                     Coach
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Manager
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Training Ground
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -399,7 +614,7 @@ export function TeamsManagement() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredTeams.map((team) => (
                   <>
-                    <tr key={team.id} className="hover:bg-gray-50">
+                    <tr key={team.id} className={pendingByTeam[team.id] ? 'bg-gray-50' : 'hover:bg-gray-50'}>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <button
@@ -412,7 +627,15 @@ export function TeamsManagement() {
                               <ChevronRight className="w-4 h-4 text-gray-600" />
                             )}
                           </button>
-                          <div className="text-sm font-medium text-gray-900">{team.age_group} {team.name}</div>
+                          <div className={`text-sm font-medium ${pendingByTeam[team.id] ? 'text-gray-400' : 'text-gray-900'}`}>
+                            {team.age_group} {team.name}
+                          </div>
+                          {pendingByTeam[team.id] && (
+                            <span className="ml-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">
+                              Pending · invited{' '}
+                              {new Date(pendingByTeam[team.id]).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
@@ -426,6 +649,9 @@ export function TeamsManagement() {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
                         {team.coach ? `${team.coach.first_name} ${team.coach.last_name}` : '-'}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                        {managerByTeam[team.id] || '-'}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
                         {team.training_ground}
@@ -450,7 +676,7 @@ export function TeamsManagement() {
                     </tr>
                     {expandedTeamId === team.id && (
                       <tr>
-                        <td colSpan={6} className="px-3 py-4 bg-gray-50">
+                        <td colSpan={7} className="px-3 py-4 bg-gray-50">
                           <div className="ml-8">
                             <h4 className="text-sm font-semibold text-gray-700 mb-3">Team Members</h4>
                             {teamMembers[team.id] && teamMembers[team.id].length > 0 ? (
@@ -707,6 +933,88 @@ export function TeamsManagement() {
                   Used for substitution calculations on the Subs page
                 </p>
               </div>
+
+              {/* Assign Manager (V1.8) — edit mode only. Cap = 2/team. */}
+              {editingTeam && (
+                <div className="border-t border-gray-200 pt-4 mt-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Managers</h3>
+
+                  {editManagers.length > 0 ? (
+                    <ul className="mb-3 space-y-1">
+                      {editManagers.map((m) => (
+                        <li key={m.membershipId} className="text-sm text-gray-800">
+                          {m.name}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mb-3 text-sm text-gray-400">No manager assigned yet.</p>
+                  )}
+
+                  {editManagers.length >= 2 ? (
+                    <p className="text-xs text-amber-700">
+                      Maximum of 2 managers reached — remove one (from the person's Users record) before assigning
+                      another.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* Assign an existing person */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Assign an existing person
+                        </label>
+                        <input
+                          type="text"
+                          value={managerSearch}
+                          onChange={(e) => handleManagerSearch(e.target.value)}
+                          placeholder="Search by name…"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0091f3]"
+                        />
+                        {managerSearchResults.length > 0 && (
+                          <div className="mt-1 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                            {managerSearchResults.map((u) => (
+                              <button
+                                key={u.id}
+                                type="button"
+                                disabled={assignBusy}
+                                onClick={() => handleAssignExistingManager(u.id, `${u.first_name} ${u.last_name}`)}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                {u.first_name} {u.last_name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Or invite by email */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Or invite by email</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="email"
+                            value={managerInviteEmail}
+                            onChange={(e) => setManagerInviteEmail(e.target.value)}
+                            placeholder="manager@example.com"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0091f3]"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleInviteManager}
+                            disabled={assignBusy || !managerInviteEmail.trim()}
+                            className="px-3 py-2 bg-[#0091f3] text-white rounded-lg text-sm font-medium hover:bg-[#0077cc] disabled:opacity-50"
+                          >
+                            Invite
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {assignMsg && <p className="mt-2 text-xs text-green-700">{assignMsg}</p>}
+                  {assignError && <p className="mt-2 text-xs text-red-600">{assignError}</p>}
+                </div>
+              )}
             </div>
 
             <div className="p-6 border-t border-gray-200 flex justify-end gap-3">

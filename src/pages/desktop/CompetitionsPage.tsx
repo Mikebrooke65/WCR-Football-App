@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
 import { competitionsApi } from '../../lib/competitions-api';
 import { invitesApi } from '../../lib/invites-api';
 import { emailApi } from '../../lib/email-api';
 import type { Competition, CompetitionTeam, Team, InviteCode } from '../../types/database';
 
 export function CompetitionsPage() {
+  const navigate = useNavigate();
+  // V1.8: split competitions by who runs them.
+  const [compTab, setCompTab] = useState<'external_league' | 'club_tournament'>('external_league');
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedComp, setSelectedComp] = useState<Competition | null>(null);
@@ -290,6 +294,7 @@ export function CompetitionsPage() {
 
   const linkedTeamIds = compTeams.map((ct: any) => ct.team_id);
   const availableTeams = teams.filter(t => !linkedTeamIds.includes(t.id));
+  const visibleComps = competitions.filter((c) => c.competition_type === compTab);
   const isActive = (comp: Competition) => competitionsApi.isCompetitionActive(comp);
   const isClosed = (comp: Competition) => competitionsApi.isCompetitionClosed(comp);
   const isUpcoming = (comp: Competition) => new Date().toISOString().split('T')[0] < comp.start_date;
@@ -315,12 +320,30 @@ export function CompetitionsPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Competitions</h1>
-        <button onClick={() => { setShowForm(true); setEditingId(null); setFormData({ name: '', competition_type: 'external_league', start_date: '', end_date: '' }); }}
+        <button onClick={() => { setShowForm(true); setEditingId(null); setFormData({ name: '', competition_type: compTab, start_date: '', end_date: '' }); }}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-          + New Competition
+          + New {compTab === 'external_league' ? 'League' : 'Club Event'}
         </button>
+      </div>
+
+      {/* V1.8: External Leagues (externally run) vs Club Events (internally run) */}
+      <div className="flex gap-2 mb-6 border-b border-gray-200">
+        {([
+          ['external_league', 'External Leagues'],
+          ['club_tournament', 'Club Events'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => { setCompTab(value); setSelectedComp(null); setCompTeams([]); setInvites([]); }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+              compTab === value ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg">{error}</div>}
@@ -373,7 +396,7 @@ export function CompetitionsPage() {
               </tr>
             </thead>
             <tbody>
-              {competitions.map(comp => (
+              {visibleComps.map(comp => (
                 <tr key={comp.id} className={`border-b hover:bg-gray-50 cursor-pointer ${selectedComp?.id === comp.id ? 'bg-blue-50' : ''}`}
                   onClick={() => selectComp(comp)}>
                   <td className="p-3 text-sm font-medium whitespace-nowrap">{comp.name}</td>
@@ -399,8 +422,10 @@ export function CompetitionsPage() {
                   </td>
                 </tr>
               ))}
-              {competitions.length === 0 && (
-                <tr><td colSpan={5} className="p-6 text-center text-gray-400">No competitions yet</td></tr>
+              {visibleComps.length === 0 && (
+                <tr><td colSpan={5} className="p-6 text-center text-gray-400">
+                  No {compTab === 'external_league' ? 'external leagues' : 'club events'} yet
+                </td></tr>
               )}
             </tbody>
           </table>
@@ -416,11 +441,17 @@ export function CompetitionsPage() {
                 <div className="space-y-2 mb-4">
                   {compTeams.map((ct: any) => (
                     <div key={ct.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                      <span className="text-sm">{ct.team?.age_group} {ct.team?.name}</span>
+                      <button
+                        onClick={() => navigate(`/desktop/teams?team=${ct.team_id}`)}
+                        className="text-sm text-left text-[#0091f3] hover:underline"
+                        title="View this team and its roster"
+                      >
+                        {ct.team?.age_group} {ct.team?.name}
+                      </button>
                       <div className="flex gap-2">
                         {isClubTournament && canInvite(selectedComp) && (
-                          <button onClick={() => openInviteModal(ct.team_id)} 
-                            className="text-xs text-blue-600 hover:underline">Invite</button>
+                          <button onClick={() => openInviteModal(ct.team_id)}
+                            className="text-xs text-blue-600 hover:underline">Reinvite</button>
                         )}
                         <button onClick={() => handleUnlinkTeam(ct.team_id)} 
                           className="text-xs text-red-600 hover:underline">Remove</button>
@@ -446,6 +477,14 @@ export function CompetitionsPage() {
                 {isClubTournament && canInvite(selectedComp) && (
                   <button onClick={openAddTeamModal} className="mt-3 w-full px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200">
                     + Add Tournament Team
+                  </button>
+                )}
+                {isClubTournament && (
+                  <button
+                    onClick={() => navigate(`/desktop/tournaments?comp=${selectedComp.id}`)}
+                    className="mt-3 w-full px-3 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm hover:bg-orange-200"
+                  >
+                    Fixtures &amp; standings
                   </button>
                 )}
               </>
