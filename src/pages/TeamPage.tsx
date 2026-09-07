@@ -898,8 +898,12 @@ export function TeamPage() {
                     // Requirement 7.5 (Task 9) — only a child-band player row
                     // ever has caregivers to add or manage; an adult-band
                     // player, or any coach/manager row, never does.
+                    // Per-person age band (entry.ageBand), NOT the team summary
+                    // (roster.ageBand) — a real child on an Open/adult team is
+                    // still a child and must be manageable as one (2026-09-09
+                    // fix; see roster-logic.ts RosterMember.ageBand).
                     const isChildBandPlayerRow =
-                      roster.ageBand === 'child' && entry.roles.includes('player');
+                      entry.ageBand === 'child' && entry.roles.includes('player');
                     const existingCaregiverCount =
                       roster.caregiverCountByPlayer[entry.userId] ?? 0;
 
@@ -1690,6 +1694,7 @@ async function fetchRoster(teamId: string, currentUserId: string): Promise<Roste
       displayName: displayName(row),
       role: row.role,
       active: row.user?.active ?? true,
+      ageBand: ageBandFor(row.user?.date_of_birth),
       contact: contactFor(
         ageBandFor(row.user?.date_of_birth),
         row.role,
@@ -1713,6 +1718,7 @@ async function fetchRoster(teamId: string, currentUserId: string): Promise<Roste
       displayName: `${child.first_name} ${child.last_name}`.trim(),
       role: 'player',
       active: false,
+      ageBand: ageBandFor(child.date_of_birth),
       contact:
         ageBandFor(child.date_of_birth) === 'child'
           ? selectCaregiverContact(caregiverLinksByPlayer[child.id] ?? [])

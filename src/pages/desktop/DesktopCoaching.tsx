@@ -17,16 +17,42 @@ export function DesktopCoaching() {
     async function loadCounts() {
       // Real counts (head:true = count only, no rows) — mirrors DesktopLanding.
       // Best-effort: a failed count simply leaves that stat blank ("—").
-      const [lessonsRes, sessionsRes, coachesRes] = await Promise.all([
+      //
+      // "Active Coaches" = distinct active users holding coach AUTHORITY on any
+      // team, not the strict global `users.role = 'coach'` (which undercounts —
+      // a per-team-promoted coach or a Manager with `is_coach` never gets the
+      // global role). Coach authority = a `team_members` row with role='coach'
+      // OR the additive `is_coach` flag (V1.R Part 1). Counted in JS because one
+      // person can hold it on several teams (and via both signals at once), so a
+      // head:true row count would double-count them.
+      const [lessonsRes, sessionsRes, coachAuthRes] = await Promise.all([
         supabase.from('lessons').select('*', { count: 'exact', head: true }),
         supabase.from('sessions').select('*', { count: 'exact', head: true }),
-        supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'coach').eq('active', true),
+        supabase
+          .from('team_members')
+          .select('user_id, user:users!inner(active)')
+          .or('role.eq.coach,is_coach.eq.true'),
       ]);
       if (cancelled) return;
+
+      let coaches: number | null = null;
+      if (!coachAuthRes.error && coachAuthRes.data) {
+        const distinct = new Set<string>();
+        for (const row of coachAuthRes.data as Array<{
+          user_id: string;
+          // supabase types a to-one embed as object; guard array defensively.
+          user: { active: boolean } | { active: boolean }[] | null;
+        }>) {
+          const u = Array.isArray(row.user) ? row.user[0] : row.user;
+          if (u?.active !== false) distinct.add(row.user_id);
+        }
+        coaches = distinct.size;
+      }
+
       setCounts({
         lessons: lessonsRes.count ?? null,
         sessions: sessionsRes.count ?? null,
-        coaches: coachesRes.count ?? null,
+        coaches,
       });
     }
 

@@ -209,6 +209,7 @@ export class TeamsApi extends ApiClient {
       team_id: team.id,
       user_id: userId,
       role: 'player',
+      is_coach: false,
       created_at: '',
       updated_at: '',
       team: team as Team,

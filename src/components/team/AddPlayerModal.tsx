@@ -120,12 +120,40 @@ export function AddPlayerModal({
 
   const hasError = (field: AddPlayerTickFieldError) => fieldErrors.includes(field);
 
+  /**
+   * On failed validation, bring the topmost errored field into view and focus
+   * it. The Continue button is pinned at the bottom of a scrollable body, so an
+   * errored field above the fold (e.g. the caregiver phone) otherwise looked
+   * like Continue did nothing at all (2026-09-09 fix). Fields already carry
+   * stable ids (`add-player-<field>`), so this needs no refs; "topmost" is
+   * resolved by live DOM position rather than the validation array's order.
+   */
+  const scrollToFirstError = (errors: AddPlayerTickFieldError[]) => {
+    if (errors.length === 0) return;
+    requestAnimationFrame(() => {
+      let target: HTMLElement | null = null;
+      let targetTop = Number.POSITIVE_INFINITY;
+      for (const field of errors) {
+        const el = document.getElementById(`add-player-${field}`);
+        if (!el) continue;
+        const top = el.getBoundingClientRect().top;
+        if (top < targetTop) {
+          targetTop = top;
+          target = el;
+        }
+      }
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.focus({ preventScroll: true });
+    });
+  };
+
   /** Move from the form to the confirmation step, or reject (Req 1.3/1.4). */
   const handleContinue = () => {
     setSubmitError(null);
     const validation = validateAddPlayerFormWithTick(form, route);
     if (!validation.ok) {
       setFieldErrors(validation.errors);
+      scrollToFirstError(validation.errors);
       return;
     }
     setFieldErrors([]);
@@ -149,6 +177,7 @@ export function AddPlayerModal({
         setFieldErrors(validation.errors);
         setStage('form');
         setIsSubmitting(false);
+        scrollToFirstError(validation.errors);
         return;
       }
 
@@ -234,13 +263,13 @@ export function AddPlayerModal({
         if (!result.ok) {
           // Server-side validation disagreed with the client's (shouldn't
           // normally happen — defense in depth). Map back to the form stage.
-          setFieldErrors(
-            result.errors.map((f): AddPlayerTickFieldError =>
-              f === 'childFirstName' ? 'firstName' : f === 'childLastName' ? 'lastName' : f
-            )
+          const mappedErrors = result.errors.map((f): AddPlayerTickFieldError =>
+            f === 'childFirstName' ? 'firstName' : f === 'childLastName' ? 'lastName' : f
           );
+          setFieldErrors(mappedErrors);
           setStage('form');
           setIsSubmitting(false);
+          scrollToFirstError(mappedErrors);
           return;
         }
         onSuccess?.({ route: 'junior', caregiverInvited: result.caregiverInvited });

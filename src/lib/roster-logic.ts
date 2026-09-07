@@ -54,6 +54,14 @@ export interface RosterMember {
   role: TeamRole;
   active: boolean;
   contact: ContactDisplay;
+  /**
+   * This person's OWN age band (DOB-derived, team `age_group` only as
+   * fallback — `deriveAgeBandForPerson`). Drives per-person caregiver
+   * visibility (Add / Manage Caregivers), which must follow the individual,
+   * not the team: a real child registered on an Open/adult team is still a
+   * child. Never use `RosterData.ageBand` (the team summary) for that.
+   */
+  ageBand: AgeBand;
   /** Child awaiting caregiver consent — greyed + non-selectable (Req 5.10). */
   pending?: boolean;
   /**
@@ -83,6 +91,8 @@ export interface RosterEntry {
   roles: TeamRole[];
   active: boolean;
   contact: ContactDisplay;
+  /** See `RosterMember.ageBand` — this person's own band, not the team's. */
+  ageBand: AgeBand;
   pending?: boolean;
   /** See `RosterMember.pendingApprovalId`. */
   pendingApprovalId?: string;
@@ -323,6 +333,7 @@ export function mergeRoles(members: RosterMember[]): RosterEntry[] {
         roles: [member.role],
         active: member.active,
         contact: member.contact,
+        ageBand: member.ageBand,
         pending: member.pending,
         pendingApprovalId: member.pendingApprovalId,
         pendingChildDetails: member.pendingChildDetails,
