@@ -16,6 +16,15 @@
 //   EMAIL_REPLY_TO e.g. "admin@yourclub.co.nz" (see note below)
 //   APP_URL        e.g. "https://clubfootball.app"
 //
+// BRANDING SOURCE (2026-09-09): club name / colour / app URL are read from the
+// `club_settings` DB table FIRST (the same single source of truth the app's
+// `useClubBranding` hook reads), so the email header matches in-app branding
+// and works per-club with no per-deployment secrets to keep in sync. The
+// CLUB_NAME / CLUB_COLOR / APP_URL secrets and the hardcoded DEFAULT_* values
+// below are only a fallback for when a `club_settings` value is absent or the
+// lookup fails. This is a server-side DB read, never client request data, so
+// it still satisfies "branding never comes from the request body" (Req 2.6).
+//
 // SEND-ONLY BY DESIGN: this function never receives mail, so the sending
 // domain needs no mailbox — "noreply@" is fine. But note that send-only
 // still requires SPF/DKIM DNS records on whatever domain you send from,
@@ -26,6 +35,8 @@
 // NOTE: Resend's test sender (onboarding@resend.dev) can ONLY deliver to
 // the address the Resend account was registered with. Real recipients
 // require a verified sending domain.
+
+import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -325,7 +336,8 @@ function buildCaregiverInvite(
 // but copy — subject line, body paragraphs, and (for confirmation) the link.
 //
 // Branding (club name, colour, app URL) comes only from `branding`, which the
-// handler populates from env vars — never from the request body (Req 2.6).
+// handler populates from the `club_settings` DB table (env vars / defaults as
+// fallback) — never from the request body (Req 2.6).
 // Team names arrive already formatted as `{age_group} {name}` from server-side
 // callers; this function renders the value verbatim and accepts no branding or
 // team-name overrides from the client (Req 2.7).
@@ -500,6 +512,46 @@ function buildCaregiverApprovalRequest(
   );
 }
 
+// Resolve club branding, DB-first (single source of truth, same as the app's
+// `useClubBranding`), with the CLUB_* env secrets and hardcoded DEFAULT_*
+// values as a last-resort fallback. Never throws: any misconfiguration or DB
+// failure degrades to the fallback so email sending is never blocked by a
+// branding lookup.
+async function resolveBranding(): Promise<Branding> {
+  const fallback: Branding = {
+    clubName: Deno.env.get('CLUB_NAME') || DEFAULT_CLUB_NAME,
+    clubColor: Deno.env.get('CLUB_COLOR') || DEFAULT_CLUB_COLOR,
+    appUrl: Deno.env.get('APP_URL') || DEFAULT_APP_URL,
+  };
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceKey) return fallback;
+
+  try {
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    // Single-row table (migration 046): id is a boolean PK fixed to true.
+    const { data, error } = await admin
+      .from('club_settings')
+      .select('club_name, primary_color, app_url')
+      .eq('id', true)
+      .maybeSingle();
+
+    if (error || !data) return fallback;
+
+    return {
+      clubName: data.club_name?.trim() || fallback.clubName,
+      clubColor: data.primary_color?.trim() || fallback.clubColor,
+      appUrl: data.app_url?.trim() || fallback.appUrl,
+    };
+  } catch (err) {
+    console.warn('send-email: club_settings branding lookup failed, using env/default fallback', err);
+    return fallback;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -512,11 +564,7 @@ Deno.serve(async (req) => {
     }
     const from = Deno.env.get('EMAIL_FROM') || DEFAULT_FROM;
     const replyTo = Deno.env.get('EMAIL_REPLY_TO') || undefined;
-    const branding: Branding = {
-      clubName: Deno.env.get('CLUB_NAME') || DEFAULT_CLUB_NAME,
-      clubColor: Deno.env.get('CLUB_COLOR') || DEFAULT_CLUB_COLOR,
-      appUrl: Deno.env.get('APP_URL') || DEFAULT_APP_URL,
-    };
+    const branding = await resolveBranding();
 
     // Require a caller to be authenticated — this function sends mail on
     // behalf of the club, so it shouldn't be open to anonymous callers.

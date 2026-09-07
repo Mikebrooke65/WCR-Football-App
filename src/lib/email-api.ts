@@ -6,10 +6,12 @@ import { ApiClient, ApiError } from './api-client';
  * CLUB-AGNOSTIC BY DESIGN: this client sends only *data* (team name,
  * competition name, invite code, recipient). Every piece of club branding
  * in the resulting email — club name, header colour, app URL used to build
- * the invite link, from-address and reply-to — comes from the Edge
- * Function's environment variables (`CLUB_NAME`, `CLUB_COLOR`, `APP_URL`,
- * `EMAIL_FROM`, `EMAIL_REPLY_TO`). Nothing club-specific is hardcoded
- * here or passed from the browser.
+ * the invite link — is resolved server-side by the Edge Function from the
+ * `club_settings` table (the same single source of truth the app's
+ * `useClubBranding` hook reads), with the `CLUB_NAME` / `CLUB_COLOR` /
+ * `APP_URL` env secrets and hardcoded defaults as fallback; from-address
+ * and reply-to come from `EMAIL_FROM` / `EMAIL_REPLY_TO`. Nothing
+ * club-specific is hardcoded here or passed from the browser.
  *
  * The HTML itself is also built server-side, so a compromised client
  * can't push arbitrary content through the sending domain.
