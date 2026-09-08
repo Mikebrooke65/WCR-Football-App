@@ -216,9 +216,20 @@ export function DesktopSchedule() {
     return matchesFilter && matchesSearch;
   });
 
-  const sortedEvents = [...filteredEvents].sort((a, b) => 
-    new Date(a.event_date).getTime() - new Date(b.event_date).getTime()
-  );
+  // Split into upcoming (soonest first) and past (most-recent first, greyed
+  // out below), matching what the mobile Schedule page already does. This
+  // list previously sorted everything ascending into one run, so a newly
+  // created future event landed at the very bottom under months of history
+  // — it looked like the event hadn't been created at all.
+  const isPastEvent = (event: Event) => new Date(event.event_date).getTime() < Date.now();
+
+  const upcomingEvents = [...filteredEvents]
+    .filter((event) => !isPastEvent(event))
+    .sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime());
+
+  const pastEvents = [...filteredEvents]
+    .filter((event) => isPastEvent(event))
+    .sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime());
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -252,7 +263,8 @@ export function DesktopSchedule() {
     }
   };
 
-  const getCardBackgroundColor = (type: string) => {
+  const getCardBackgroundColor = (type: string, isPast = false) => {
+    if (isPast) return 'rgba(156, 163, 175, 0.15)'; // flat grey for past events, regardless of type
     switch (type) {
       case 'training':
         return 'rgba(59, 130, 246, 0.2)'; // Blue at 20%
@@ -264,6 +276,66 @@ export function DesktopSchedule() {
         return 'rgba(156, 163, 175, 0.2)'; // Gray at 20%
     }
   };
+
+  // One card in the left-hand list. `isPast` greys it out; past events stay
+  // clickable so an admin can still open and edit them (a past event may
+  // need its date corrected, or marking as cancelled).
+  const renderEventListCard = (event: Event, isPast: boolean) => (
+    <div
+      key={event.id}
+      onClick={() => {
+        setSelectedEvent(event);
+        setShowCreateForm(false);
+      }}
+      className={`p-3 border rounded-lg cursor-pointer transition-all ${isPast ? 'opacity-60' : ''} ${
+        selectedEvent?.id === event.id
+          ? 'border-[#0091f3] bg-blue-50'
+          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+      }`}
+      style={{
+        backgroundColor:
+          selectedEvent?.id === event.id
+            ? undefined
+            : getCardBackgroundColor(event.event_type, isPast),
+      }}
+    >
+      <div className="flex items-start justify-between mb-1">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 mb-1">
+            <h3 className="font-medium text-gray-900 text-sm truncate">{getEventTitle(event)}</h3>
+            <span className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize flex-shrink-0 ${getTypeColor(event.event_type)}`}>
+              {event.event_type}
+            </span>
+          </div>
+          {getEventTeamName(event) && (
+            <p className="text-xs text-gray-600 truncate">{getEventTeamName(event)}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-gray-600 mb-1">
+        <div className="flex items-center gap-1">
+          <Calendar className="w-3 h-3" />
+          <span>{new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Clock className="w-3 h-3" />
+          <span>{formatTime(event.event_date)}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 text-xs text-gray-600">
+        <div className="flex items-center gap-1">
+          <CheckCircle className="w-3 h-3 text-green-600" />
+          <span>{attendeeCounts[event.id] || 0}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Users className="w-3 h-3 text-gray-400" />
+          <span>{totalMemberCounts[event.id] || 0}</span>
+        </div>
+      </div>
+    </div>
+  );
 
   const getEventTeamName = (event: Event) => {
     if (!event.target_teams || event.target_teams.length === 0) return null;
@@ -382,59 +454,32 @@ export function DesktopSchedule() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {sortedEvents.map((event) => (
-              <div
-                key={event.id}
-                onClick={() => {
-                  setSelectedEvent(event);
-                  setShowCreateForm(false);
-                }}
-                className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                  selectedEvent?.id === event.id
-                    ? 'border-[#0091f3] bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
-                style={{ 
-                  backgroundColor: selectedEvent?.id === event.id ? undefined : getCardBackgroundColor(event.event_type)
-                }}
-              >
-                <div className="flex items-start justify-between mb-1">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1 mb-1">
-                      <h3 className="font-medium text-gray-900 text-sm truncate">{getEventTitle(event)}</h3>
-                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize flex-shrink-0 ${getTypeColor(event.event_type)}`}>
-                        {event.event_type}
-                      </span>
-                    </div>
-                    {getEventTeamName(event) && (
-                      <p className="text-xs text-gray-600 truncate">{getEventTeamName(event)}</p>
-                    )}
-                  </div>
-                </div>
+            {upcomingEvents.map((event) => renderEventListCard(event, false))}
 
-                <div className="flex items-center gap-3 text-xs text-gray-600 mb-1">
-                  <div className="flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    <span>{new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    <span>{formatTime(event.event_date)}</span>
-                  </div>
-                </div>
+            {upcomingEvents.length === 0 && pastEvents.length === 0 && (
+              <div className="text-center py-10">
+                <Calendar className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-600 text-sm">No events scheduled</p>
+              </div>
+            )}
 
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3 text-green-600" />
-                    <span>{attendeeCounts[event.id] || 0}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Users className="w-3 h-3 text-gray-400" />
-                    <span>{totalMemberCounts[event.id] || 0}</span>
-                  </div>
+            {upcomingEvents.length === 0 && pastEvents.length > 0 && (
+              <div className="text-center py-6">
+                <Calendar className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-600 text-sm">No upcoming events</p>
+              </div>
+            )}
+
+            {/* Past events — greyed out below the upcoming ones, still
+                clickable so an admin can open and edit them. */}
+            {pastEvents.length > 0 && (
+              <div className="pt-3">
+                <h3 className="text-xs font-semibold text-gray-500 mb-2 px-1">Past Events</h3>
+                <div className="space-y-2">
+                  {pastEvents.map((event) => renderEventListCard(event, true))}
                 </div>
               </div>
-            ))}
+            )}
           </div>
         </div>
 
