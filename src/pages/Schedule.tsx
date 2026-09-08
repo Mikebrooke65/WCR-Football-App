@@ -589,19 +589,46 @@ export function Schedule() {
       {isPast ? (
         <p className="text-xs text-gray-500 italic">Event has passed — RSVP closed</p>
       ) : (
-        <div className="flex gap-1.5">
+        <div>
           {(() => {
             const identities = identitiesByEvent[event.id] || [];
             const multiIdentity = identities.length >= 2;
-            const selfStatus = rsvps[event.id]?.[user?.id || '']?.status;
+            // With exactly one identity the buttons act on it directly. That
+            // identity is NOT always the logged-in user: for a pure caregiver
+            // (no membership of their own) with one child on this team, their
+            // single identity is the CHILD. Defaulting to self here recorded
+            // the caregiver as attending a team they aren't on, and left the
+            // child still owing a response.
+            const soleSubjectId = identities.length === 1
+              ? identities[0].subjectUserId
+              : user?.id || '';
+            const soleStatus = rsvps[event.id]?.[soleSubjectId]?.status;
             const onTap = (status: 'going' | 'not_going' | 'maybe') =>
-              multiIdentity ? setRsvpModalEvent(event) : handleRsvp(event.id, status);
+              multiIdentity
+                ? setRsvpModalEvent(event)
+                : handleRsvp(event.id, status, identities[0]?.subjectUserId);
+            // Say WHOSE answer these buttons set. A caregiver answering for
+            // one child otherwise gets three unlabelled buttons identical to
+            // a player's, with nothing on screen saying the RSVP is their
+            // child's and not their own.
+            const soleIdentity = identities.length === 1 ? identities[0] : null;
             return (
               <>
+                {soleIdentity && !soleIdentity.isSelf && (
+                  <p className="text-xs text-gray-600 mb-1">
+                    RSVP for <span className="font-semibold">{soleIdentity.label}</span>
+                  </p>
+                )}
+                {multiIdentity && (
+                  <p className="text-xs text-gray-600 mb-1">
+                    RSVP for <span className="font-semibold">{identities.length} people</span> — tap to choose
+                  </p>
+                )}
+                <div className="flex gap-1.5">
                 <button
                   onClick={() => onTap('going')}
                   className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    !multiIdentity && selfStatus === 'going'
+                    !multiIdentity && soleStatus === 'going'
                       ? 'bg-green-500 text-white'
                       : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-green-50'
                   }`}
@@ -612,7 +639,7 @@ export function Schedule() {
                 <button
                   onClick={() => onTap('maybe')}
                   className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    !multiIdentity && selfStatus === 'maybe'
+                    !multiIdentity && soleStatus === 'maybe'
                       ? 'bg-gray-500 text-white'
                       : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-gray-100'
                   }`}
@@ -623,7 +650,7 @@ export function Schedule() {
                 <button
                   onClick={() => onTap('not_going')}
                   className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    !multiIdentity && selfStatus === 'not_going'
+                    !multiIdentity && soleStatus === 'not_going'
                       ? 'bg-red-500 text-white'
                       : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-red-50'
                   }`}
@@ -631,6 +658,7 @@ export function Schedule() {
                   <XCircle className="w-3 h-3" />
                   Can't Go
                 </button>
+                </div>
               </>
             );
           })()}
