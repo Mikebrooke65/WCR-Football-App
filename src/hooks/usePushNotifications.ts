@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { deviceTokensApi } from '../lib/device-tokens-api';
 import { supabase } from '../lib/supabase';
 import { router } from '../routes';
+import { resolvePushRoute } from '../lib/push-routing-logic';
 
 /**
  * Registers this device for push notifications (via Firebase Cloud Messaging)
@@ -98,30 +99,33 @@ export function usePushNotifications() {
       // Fires only while the app is in the foreground. Android never shows
       // its own system banner in that state (by design), so without this
       // listener a message arriving while the app is open produces nothing
-      // visible at all. Every push today is a team message and this app has
-      // a single Messaging screen (no per-thread deep link yet), so route
-      // straight there regardless of content.
+      // visible at all. Routes by the push's `data` payload (V1.7 Piece B,
+      // `push-routing-logic.ts`) — a team message has none and falls back
+      // to Messaging, same as before; an RSVP reminder (`type:
+      // 'event_rsvp'`) routes straight to that event on Schedule.
       receivedListener = await PushNotifications.addListener(
         'pushNotificationReceived',
         (notification) => {
           const title = notification.title || 'New message';
           const body = notification.body || undefined;
+          const route = resolvePushRoute(notification.data);
           toast(title, {
             description: body,
             action: {
               label: 'View',
-              onClick: () => router.navigate('/messaging'),
+              onClick: () => router.navigate(route),
             },
           });
         }
       );
 
       // Fires when the user taps a notification that the OS delivered while
-      // the app was backgrounded or not running. Deep-links to Messaging.
+      // the app was backgrounded or not running. Deep-links per the same
+      // data-payload routing as above.
       actionListener = await PushNotifications.addListener(
         'pushNotificationActionPerformed',
-        () => {
-          router.navigate('/messaging');
+        (action) => {
+          router.navigate(resolvePushRoute(action.notification.data));
         }
       );
 

@@ -2,6 +2,92 @@
 
 All notable changes to the football coaching app prototype will be documented in this file.
 
+## [2026-09-08] - V1.7: RSVP per child + RSVP reminders
+
+Built from the locked handoff spec `.kiro/specs/v1.7-rsvp-availability/`
+(requirements/design/tasks — read those for full rationale). Two independent
+pieces; **not yet deployed** — migrations `077`/`078` need to be run and
+`send-rsvp-reminders` deployed before this is live (see `NEXT-SESSION-NOTES.md`).
+
+### Added
+- **Caregivers can now RSVP separately for each child.** A caregiver of two
+  (or more) children on the same team — and possibly also a coach/manager
+  there themselves — used to be limited to one RSVP per event for their own
+  login. Tapping Going / Maybe / Can't-Go now opens a per-person modal
+  whenever more than one identity applies (e.g. "John Smith — Coach",
+  "Johnny Smith", "Jenny Smith"), each with its own independent status and
+  decline reason, saved immediately. A single-identity user (the normal
+  case) sees no change at all.
+- **RSVP reminders.** A hidden scheduled job now checks, once an hour, for
+  events starting in the next 24-25 hours and sends a push to anyone who
+  hasn't responded yet — one push per caregiver naming the event (not one
+  per un-responded child), skipping anyone already reminded for that event.
+  Tapping the notification opens the app on that event, scrolled into view
+  and briefly highlighted.
+
+### Technical Notes
+- **Migration `077`** adds `event_rsvps.subject_user_id` — who the RSVP is
+  *about* (self, or a linked child), distinct from `user_id` which stays
+  "who actually submitted it" for audit. Uniqueness moves from
+  `(event_id, user_id)` to `(event_id, subject_user_id)` so one login can
+  hold several RSVP rows per event. The RLS `WITH CHECK` on the manage
+  policy now requires `subject_user_id` to be the submitter themselves or a
+  child linked to them via `player_caregivers` — enforced server-side, not
+  just client-gated.
+- `src/lib/rsvp-identities.ts` (`resolveRsvpIdentities`) is new pure logic
+  resolving, for a given event, the set of identities a logged-in user can
+  RSVP as (self, if they hold player/coach/manager on the event's target
+  team, plus one per linked child who plays there) — unit + fast-check
+  property tested (`rsvp-identities.test.ts`).
+- `events-api.ts`: `setRsvp` gained a `subjectUserId?` parameter;
+  `getUserRsvps` and `getEventAttendeeDetails` now key/attribute by
+  `subject_user_id` instead of `user_id` (so a caregiver-submitted child
+  RSVP is correctly attributed to the child in the attendee list, not the
+  caregiver). `getUserRsvps`'s return type changed shape — from a flat
+  `event_id → EventRsvp` map to `event_id → subject_user_id → EventRsvp` —
+  updated at both call sites (`Schedule.tsx`, `DesktopSchedule.tsx`).
+- `Schedule.tsx` batch-resolves each visible event's identities from the
+  caregiver's linked children (new `caregivers-api.ts` method,
+  `getCaregiverChildrenWithTeamIds`, best-effort like `teams-api.ts`'s
+  `getMyTeams`) and the user's own team memberships. **Deliberate deviation
+  from the spec's literal wording:** RSVP buttons stay visible/tappable even
+  when an event resolves to zero identities (design.md said "no RSVP
+  controls" for that edge case) — there's no existing team-membership gate
+  on the buttons today, and adding one here would have been a scope-creepy
+  regression risk unrelated to this feature.
+- New Edge Function `supabase/functions/send-rsvp-reminders`, scheduled via
+  **migration `078`**'s `pg_cron` (hourly) + `pg_net` job — the same direct
+  `net.http_post` pattern migration 042 established for `send-message-push`
+  (this project's dashboard Database Webhooks feature doesn't work here;
+  042's header explains why). Reuses 042's Vault `service_role_key` secret.
+  For each event in the (24h, 25h] window it resolves the target team(s)
+  roster, works out who owes a response (`src/lib/rsvp-reminders-logic.ts`
+  — pure, unit + fast-check tested), maps owed roster members to recipients
+  (an owed adult directly; an owed child via each linked caregiver, de-duped
+  to one push per caregiver — locked decision D-B2), and records sends in
+  the new `rsvp_reminders_sent` table (migration `078`) to avoid
+  double-notifying on a later tick.
+- Edge Functions in this codebase have no shared/`_shared` directory, so the
+  FCM-sending helpers and the owed-response/recipient logic are deliberately
+  duplicated into `send-rsvp-reminders/index.ts` from `send-message-push`
+  and `src/lib/rsvp-reminders-logic.ts` respectively — keep them in sync by
+  hand if either changes.
+- **New general capability, not spec'd as its own item:** there was no
+  existing "push data payload → in-app route" pattern to reuse for the
+  reminder's deep link, despite design.md assuming one — every push before
+  this hardcoded navigation to `/messaging` regardless of content
+  (`usePushNotifications.ts`). Added `src/lib/push-routing-logic.ts`
+  (`resolvePushRoute`, pure + tested) plus a `data` payload on FCM sends
+  (`send-message-push`'s helper now accepts an optional `data` object;
+  `send-rsvp-reminders` sends `{ type: 'event_rsvp', eventId }`). Existing
+  message pushes are unaffected (no `data` sent, same `/messaging`
+  fallback). `Schedule.tsx` reads a new `?event=<id>` query param to
+  scroll/highlight the matching event card on load.
+- Test baseline: 254 passed | 2 skipped → **291 passed | 2 skipped** (37 new:
+  10 in `rsvp-identities.test.ts` for Piece A, 16 in
+  `rsvp-reminders-logic.test.ts` + 11 in `push-routing-logic.test.ts` for
+  Piece B). `npm run build` clean throughout.
+
 ## [2026-09-08] - V1.6: Invite landing page — branding & context
 
 ### Changed

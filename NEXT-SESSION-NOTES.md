@@ -1,4 +1,68 @@
 # Next Session Notes
+## Current State — 8 September 2026 (V1.7 build)
+
+**V1.7 RSVP / Availability — Piece A and Piece B both built this session**,
+from the locked handoff spec (`.kiro/specs/v1.7-rsvp-availability/`). Code +
+tests are done and verified in the sandbox (`npm run build` clean, `npx
+vitest --run` → 291 passed | 2 skipped, up from the 254/2 baseline — 37 new
+tests across `rsvp-identities.test.ts`, `rsvp-reminders-logic.test.ts`,
+`push-routing-logic.test.ts`). **Not yet deployed or live-verified** — see
+"Deploys + verification owed" below before flipping this to fully done.
+
+- **Piece A — caregiver multi-child RSVP.** Migration `077` adds
+  `event_rsvps.subject_user_id` ("who this RSVP is about", vs `user_id` =
+  "who submitted it"), moves the uniqueness constraint to
+  `(event_id, subject_user_id)`, and tightens the RLS `WITH CHECK` so a
+  caregiver can only write their own or a linked child's identity.
+  `src/lib/rsvp-identities.ts` (`resolveRsvpIdentities`) is the pure
+  identity-resolution logic; `events-api.ts` and `Schedule.tsx` were updated
+  throughout to key RSVPs by `event_id` → `subject_user_id` instead of a
+  flat `event_id` → RSVP map. A caregiver with 2+ identities on an event now
+  gets a per-identity modal (each with independent Going/Maybe/Can't-Go +
+  decline reason); a single-identity user sees no change. `DesktopSchedule.tsx`
+  got the matching type update (state unused there today, so no behaviour
+  change on desktop).
+- **Piece B — RSVP reminder push notifications.** New Edge Function
+  `send-rsvp-reminders`, invoked hourly via `pg_cron` + `pg_net` (migration
+  `078`, same direct-`pg_net` pattern as migration 042's
+  `send-message-push` trigger — reuses that migration's Vault
+  `service_role_key` secret, no new manual secret step if 042 is already
+  applied). For each event starting in the (24h, 25h] window, it works out
+  who still owes an RSVP (`src/lib/rsvp-reminders-logic.ts`, pure + tested)
+  and sends **one push per caregiver** naming the event (not one per
+  un-responded child), skipping anyone already reminded for that event
+  (new `rsvp_reminders_sent` table, migration `078`). Tapping the push now
+  deep-links to that event on Schedule and scrolls/highlights it — this
+  needed a small new general capability, `src/lib/push-routing-logic.ts`
+  (`resolvePushRoute`), since there was no existing push data-payload →
+  route pattern to reuse (every push before this hardcoded `/messaging`
+  regardless of content); `usePushNotifications.ts` and
+  `send-message-push`'s FCM helper both updated to carry/read a `data`
+  payload.
+- Full technical detail in `CHANGELOG.md`'s 2026-09-08 "V1.7" entry.
+
+**Deploys + verification owed (do these before V1.7 counts as done):**
+1. Run migration `077` in the Supabase SQL Editor (Piece A).
+2. Run migration `078` in the SQL Editor (Piece B — `rsvp_reminders_sent` +
+   the hourly cron schedule). Needs the Vault `service_role_key` secret from
+   migration 042 — should already exist if 042 is applied; the migration
+   file has the one-line fallback if not.
+3. Deploy the new function: `supabase functions deploy send-rsvp-reminders`.
+   The cron job will error harmlessly each tick until this is done.
+4. **Live-test Piece A:** a caregiver with 2+ children on the same team sees
+   the multi-identity modal, sets a different RSVP per child, each persists
+   independently; a single-identity user sees no behaviour change; the
+   "X/Y attending" counter and attendee list still read correctly.
+5. **Live-test Piece B:** create (or use) an event ~24h out with a roster
+   member who hasn't responded and has a registered device token; confirm
+   one push arrives around the scheduled hour, tapping it opens Schedule
+   scrolled to that event, and a second scheduler tick does not re-send.
+
+**What's left for V1 (down to 2 once V1.7 is live-verified):** privacy +
+retention (last, hard gate) → V1.9 store.
+
+---
+
 ## Current State — 8 September 2026
 
 **Small-fix session — five items cleared, all pushed to `kiro/prototype`.**

@@ -119,7 +119,13 @@ async function sendFcmNotification(
   accessToken: string,
   deviceToken: string,
   title: string,
-  body: string
+  body: string,
+  // V1.7 Piece B (Requirement B5/B6): FCM data payloads are always flat
+  // string-valued objects. `usePushNotifications.ts`'s `resolvePushRoute`
+  // (src/lib/push-routing-logic.ts) reads this to deep-link the tap;
+  // omitting it (as every push here did before V1.7) falls back to
+  // Messaging, unchanged from prior behaviour.
+  data?: Record<string, string>
 ): Promise<boolean> {
   const response = await fetch(
     `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -133,6 +139,7 @@ async function sendFcmNotification(
         message: {
           token: deviceToken,
           notification: { title, body },
+          ...(data ? { data } : {}),
         },
       }),
     }
