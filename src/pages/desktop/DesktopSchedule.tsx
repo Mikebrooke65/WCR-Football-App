@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, MapPin, Users, Plus, Search, CheckCircle, XCircle, HelpCircle, Bell } from 'lucide-react';
+import { Calendar, Clock, MapPin, Users, Plus, Search, CheckCircle, XCircle, HelpCircle, Bell, X } from 'lucide-react';
 import { MessagingProvider } from '../../contexts/MessagingContext';
 import { ComposeForm } from '../../components/messaging/ComposeForm';
 import { TargetingSelector, type TargetingData } from '../../components/shared/TargetingSelector';
 import { eventsApi } from '../../lib/events-api';
+import type { EventAttendeeDetails } from '../../lib/events-api';
 import { buildReminderPrefill } from '../../lib/reminder-message-logic';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Event, EventRsvp, Team } from '../../types/database';
@@ -31,6 +32,28 @@ export function DesktopSchedule() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [reminderEvent, setReminderEvent] = useState<Event | null>(null);
+
+  // Attendee list modal. The "View Attendee List" button existed on this
+  // page but was wired to nothing — a dead control that did nothing when
+  // clicked. Mirrors the working implementation on the mobile Schedule
+  // page, including its by-status grouping and decline reasons.
+  const [attendeeModalEvent, setAttendeeModalEvent] = useState<Event | null>(null);
+  const [attendeeDetails, setAttendeeDetails] = useState<EventAttendeeDetails | null>(null);
+  const [attendeeLoading, setAttendeeLoading] = useState(false);
+
+  const openAttendeeModal = async (event: Event) => {
+    setAttendeeModalEvent(event);
+    setAttendeeDetails(null);
+    setAttendeeLoading(true);
+    try {
+      const details = await eventsApi.getEventAttendeeDetails(event);
+      setAttendeeDetails(details);
+    } catch (err) {
+      console.error('Failed to load attendee details:', err);
+    } finally {
+      setAttendeeLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadEvents();
@@ -840,7 +863,10 @@ export function DesktopSchedule() {
                     <Bell className="w-4 h-4" />
                     Send Reminder
                   </button>
-                  <button className="w-full px-4 py-2 bg-[#0091f3] text-white rounded-lg hover:bg-[#0081d9] transition-colors">
+                  <button
+                    onClick={() => openAttendeeModal(selectedEvent)}
+                    className="w-full px-4 py-2 bg-[#0091f3] text-white rounded-lg hover:bg-[#0081d9] transition-colors"
+                  >
                     View Attendee List
                   </button>
                 </div>
@@ -894,6 +920,71 @@ export function DesktopSchedule() {
                   onSent={() => setReminderEvent(null)}
                 />
               </MessagingProvider>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attendee List Modal — who's going / maybe / can't go (with reason)
+          / hasn't responded. Attribution is by subject_user_id (V1.7 Piece
+          A), so a caregiver-submitted RSVP shows against the CHILD, not the
+          caregiver. */}
+      {attendeeModalEvent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 py-8">
+            <div className="bg-white rounded-lg max-w-md w-full max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b border-gray-200 sticky top-0 bg-white">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-gray-900 truncate">{getEventTitle(attendeeModalEvent)}</h3>
+                  <p className="text-xs text-gray-500">{formatDate(attendeeModalEvent.event_date)}</p>
+                </div>
+                <button
+                  onClick={() => { setAttendeeModalEvent(null); setAttendeeDetails(null); }}
+                  className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4">
+                {attendeeLoading && (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0091f3] mx-auto"></div>
+                  </div>
+                )}
+
+                {!attendeeLoading && attendeeDetails && (
+                  <div className="space-y-4">
+                    {([
+                      { key: 'going', label: 'Going', icon: CheckCircle, color: 'text-green-600' },
+                      { key: 'maybe', label: 'Maybe', icon: HelpCircle, color: 'text-gray-600' },
+                      { key: 'not_going', label: "Can't Go", icon: XCircle, color: 'text-red-600' },
+                      { key: 'no_response', label: 'No Response', icon: Users, color: 'text-gray-400' },
+                    ] as const).map(({ key, label, icon: Icon, color }) => (
+                      <div key={key}>
+                        <div className={`flex items-center gap-1.5 text-sm font-semibold mb-1.5 ${color}`}>
+                          <Icon className="w-4 h-4" />
+                          {label} ({attendeeDetails[key].length})
+                        </div>
+                        {attendeeDetails[key].length === 0 ? (
+                          <p className="text-xs text-gray-400 pl-5">None</p>
+                        ) : (
+                          <ul className="pl-5 space-y-1">
+                            {attendeeDetails[key].map((a) => (
+                              <li key={a.user_id} className="text-sm text-gray-700">
+                                {a.name}
+                                {a.status === 'not_going' && a.decline_reason && (
+                                  <span className="text-xs text-gray-400 capitalize"> — {a.decline_reason}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
