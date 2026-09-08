@@ -179,6 +179,33 @@ export class EventsApi extends ApiClient {
   }
 
   // Get attendee counts (going) for multiple events
+  /**
+   * How many people have ANSWERED at all — going, maybe or can't-go — per
+   * event. Distinct from `getAttendeeCounts`, which deliberately counts
+   * only `going` because it feeds the "X/Y attending" counter.
+   *
+   * The Send Reminder message needs this one instead: a person who replied
+   * "Can't Go" has responded, and telling the team "we've only had 1 reply"
+   * when four people have answered (three of them declining) is simply
+   * wrong, and undercounts exactly the people you are not chasing.
+   */
+  async getResponseCounts(eventIds: string[]): Promise<Record<string, number>> {
+    if (eventIds.length === 0) return {};
+    const { data, error } = await this.supabase
+      .from('event_rsvps')
+      .select('event_id')
+      .in('event_id', eventIds)
+      .neq('status', 'no_response');
+
+    if (error) return {};
+
+    const counts: Record<string, number> = {};
+    (data || []).forEach((row: { event_id: string }) => {
+      counts[row.event_id] = (counts[row.event_id] || 0) + 1;
+    });
+    return counts;
+  }
+
   async getAttendeeCounts(eventIds: string[]): Promise<Record<string, number>> {
     if (eventIds.length === 0) return {};
     const { data, error } = await this.supabase

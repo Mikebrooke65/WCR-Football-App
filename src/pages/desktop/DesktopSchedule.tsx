@@ -4,6 +4,7 @@ import { MessagingProvider } from '../../contexts/MessagingContext';
 import { ComposeForm } from '../../components/messaging/ComposeForm';
 import { TargetingSelector, type TargetingData } from '../../components/shared/TargetingSelector';
 import { eventsApi } from '../../lib/events-api';
+import { buildReminderPrefill } from '../../lib/reminder-message-logic';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Event, EventRsvp, Team } from '../../types/database';
 
@@ -17,6 +18,10 @@ export function DesktopSchedule() {
   const [rsvps, setRsvps] = useState<Record<string, Record<string, EventRsvp>>>({});
   const [attendeeCounts, setAttendeeCounts] = useState<Record<string, number>>({});
   const [totalMemberCounts, setTotalMemberCounts] = useState<Record<string, number>>({});
+  // Everyone who has answered at all (going/maybe/can't-go) — distinct from
+  // attendeeCounts, which is `going` only because it feeds "X/Y attending".
+  // Only the Send Reminder message uses this.
+  const [responseCounts, setResponseCounts] = useState<Record<string, number>>({});
   const [userTeams, setUserTeams] = useState<Team[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,14 +48,16 @@ export function DesktopSchedule() {
       // separate network round trip; awaiting them in sequence was adding
       // their latencies up instead of overlapping them, which is most of
       // why the page took several seconds to appear.
-      const [rsvpMap, counts, totals] = await Promise.all([
+      const [rsvpMap, counts, totals, responses] = await Promise.all([
         eventsApi.getUserRsvps(data.map(e => e.id)),
         eventsApi.getAttendeeCounts(data.map(e => e.id)),
         eventsApi.getTotalMemberCounts(data),
+        eventsApi.getResponseCounts(data.map(e => e.id)),
       ]);
       setRsvps(rsvpMap);
       setAttendeeCounts(counts);
       setTotalMemberCounts(totals);
+      setResponseCounts(responses);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load events');
     } finally {
@@ -869,8 +876,17 @@ export function DesktopSchedule() {
             <div className="max-w-lg w-full">
               <MessagingProvider>
                 <ComposeForm
-                  prefillTitle={`Reminder: ${getEventTitle(reminderEvent)}`}
-                  prefillBody={`Hi team,\n\nWe've only had ${attendeeCounts[reminderEvent.id] || 0} replies so far. Please get your response in!\n\nThis is a reminder about ${getEventTitle(reminderEvent)} on ${formatDate(reminderEvent.event_date)} at ${formatTime(reminderEvent.event_date)}.\n\nLocation: ${reminderEvent.location}\n\nPlease update your RSVP if you haven't already.`}
+                  {...(() => {
+                    const prefill = buildReminderPrefill({
+                      eventTitle: getEventTitle(reminderEvent),
+                      dateLabel: formatDate(reminderEvent.event_date),
+                      timeLabel: formatTime(reminderEvent.event_date),
+                      location: reminderEvent.location,
+                      replied: responseCounts[reminderEvent.id] || 0,
+                      total: totalMemberCounts[reminderEvent.id] || 0,
+                    });
+                    return { prefillTitle: prefill.title, prefillBody: prefill.body };
+                  })()}
                   prefillTeamId={reminderEvent.target_teams?.[0]}
                   prefillTargeting="whole_team"
                   hideTargetingOptions={true}
