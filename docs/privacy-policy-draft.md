@@ -61,13 +61,12 @@ record their relationship to a team, as one of the following:
   being managed
 
 Your information is also used to run the app's core features: team messaging
-between members, the schedule of games and events, and coaching resources.
+between members, the schedule of games and events, RSVP/availability for
+those events, and coaching resources.
 
-> ⚠️ REVIEW (feature completeness — confirm at publish time): the line above
-> lists the features live as of 2026-08-19 (Team Messaging, Schedule/events,
-> Coaching resources). **RSVP/availability (V1.7) is NOT yet live** — add it
-> here the moment it ships, and reflect it in the store questionnaires at the
-> same time. Re-check this list against the app on the day you publish.
+> ✅ RESOLVED 2026-09-08: RSVP/availability (V1.7) shipped and is live-verified
+> — added to the feature list above. Re-check this list against the app on the
+> day you publish, since features keep landing.
 
 ## Optional information
 
@@ -108,25 +107,51 @@ law.
 
 ## How long we keep your information
 
-Your information is used by the app for the year that is being managed (e.g.
-the current football season). If you continue in a role — as a player,
-manager, coach, admin, or caregiver — into the following year, your
-information is carried forward and continues to be used.
+Your information is used by the app for as long as you hold a role at the
+club — as a player, manager, coach, admin, or caregiver. If you move to a
+new team or competition while still holding a role, your information carries
+forward and continues to be used.
 
-If you no longer hold a role in the following year, your information is
-retained for one further year. After 12 months of not holding a role, the app
-automatically deletes your associated private information.
+If you stop holding any role — for example your team's season or competition
+ends and you don't take on a new one — your information is kept for a further
+**12 months** in case you rejoin. If a competition or team you're part of is
+still running, this 12-month period starts once it closes (for a club-run
+competition or tournament, a defined period after its last event, to give the
+club time to wrap up and message everyone involved).
 
-> ⚠️ REVIEW (MUST FIX — policy promises something the app can't do yet):
-> the app currently has **no deletion mechanism** — only "mark inactive"
-> (a deliberate design rule; nothing is ever deleted). This paragraph
-> promises automatic deletion after 12 months, which does not exist in code.
-> Before publishing, either:
->   (a) build the scheduled deletion job so the app does what this says, or
->   (b) reword to describe what actually happens today (retained, marked
->       inactive) and only add the deletion promise once it's built.
-> Publishing (a promise) + not doing it = a false statement to users and the
-> stores. This is roadmap open decision 3c.
+After that 12 months, if you still hold no role, your name, email, phone
+number and date of birth are removed from your account. Your account is not
+deleted outright — this is so that messages, feedback and other records that
+mention you (for example, something a coach wrote, or a message you sent)
+aren't lost or corrupted for the other people involved, but nothing that
+identifies you personally is kept.
+
+Before this happens, club admins review a list, once a month, of everyone
+approaching this point, and can choose to hold off removing someone's
+information — for example, if they know that person is taking a short break
+and will be back. You do not need to do anything yourself for your
+information to be kept correctly; if you want to check what's held about you
+or ask a question about this at any time, see "Your rights" below.
+
+A young person invited to a team whose caregiver never confirms the invite is
+treated the same way, but sooner — after 90 days, not 12 months, since
+nothing was ever actually set up for them.
+
+> ✅ RESOLVED 2026-09-08 (was: "policy promises something the app can't do
+> yet"). The rules above are the real, locked policy — see
+> `docs/data-retention-scoping.md`'s "DECISIONS LOCKED" section for the full
+> reasoning (including why this is an in-place removal of personal fields
+> rather than deleting the account row, which several other tables' data
+> depends on to stay intact).
+>
+> ⚠️ REVIEW (MUST FIX before publishing — build not finished yet): the
+> automated monthly job, the admin review list, and the automatic removal
+> after the grace window are **specified but not yet built** —
+> `.kiro/specs/data-retention-privacy/requirements.md` is the spec (Pieces
+> A/B/C). **Do not publish this section until that spec is built and
+> live-verified** — publishing this wording before the mechanism exists would
+> repeat the exact problem this note originally flagged. Track this to done
+> before go-live, not just written down.
 
 ## Your rights
 
@@ -144,66 +169,114 @@ contact us at [privacy@clubfootball.app].
 > compliance failure.** Mike is deciding which address to use (ties to the open
 > EMAIL_REPLY_TO decision). Do not publish until this resolves.
 
-## Coach feedback on player performance
+## Coach feedback and progress notes on player performance
 
-[PLANNED — v2 feature, not yet live] In a future version, the app will allow
-coaches to record feedback about team and individual player performance —
-including strengths and areas of focus. This replaces a process the club
-currently does manually.
+Coaches (and admin users) can record feedback and progress notes about a team
+or an individual player — their strengths and areas to work on. This replaces
+a process the club previously did manually.
 
-This feedback:
-
-- Can only be entered by coaches and admin users
-- Is only visible once a coach posts it — it is not visible while still in
-  draft
-- Team feedback, once posted, is visible to anyone in that team
-- Individual feedback, once posted, is only visible to that player and, where
-  applicable, their caregiver (a caregiver can only see feedback for their own
-  associated player, not other players)
-- Is not visible to other players, other teams, or anyone outside this
-  hierarchy
-- Is used only to support the player's development and their coach's
-  planning — it is not used for any other purpose
+- A coach's observation is captured first as a private, in-progress draft,
+  visible only to that coach and admin — never to the player, a caregiver, or
+  anyone else — while it's being worked on.
+- The coach then reviews the draft (see "AI-assisted coaching support"
+  below), and either **posts** it, at which point it becomes visible under
+  the rules below, or **discards** it, in which case it is deleted straight
+  away and nothing is saved.
+- **Team feedback**, once posted, is visible to anyone on that team.
+- **Individual feedback and progress notes**, once posted, are visible only
+  to that player and, where applicable, their caregiver (a caregiver can only
+  see notes for their own associated player, not other players), and to that
+  team's coaches, managers and admin.
+- Feedback is not visible to other players, other teams, or anyone outside
+  this hierarchy.
+- It is used only to support the player's development and their coach's
+  planning — not for any other purpose.
 
 If a player or caregiver wants to clarify, discuss, or seek a correction to
-feedback, the app provides a process to automatically communicate this back to
-the relevant coach. Players are also actively encouraged to give their own
-feedback.
+feedback, the app provides a way to raise this directly with the relevant
+coach. Players are also actively encouraged to give their own feedback.
 
-Detailed individual and team feedback is personal information, and is deleted
-under the same rule as the rest of your information — 12 months after you no
-longer hold a role at the club (see "How long we keep your information"
-above).
+Posted individual and team feedback is personal information, and is kept
+under the same rule as the rest of your information (see "How long we keep
+your information" above) — for as long as the player is still listed with
+the club, then for a further 12 months.
 
-> ⚠️ REVIEW (unreleased feature): this whole section describes a v2 feature
-> that isn't live. It's honestly labelled [PLANNED], which is fine, but a
-> published privacy policy normally describes current behaviour, and the
-> store privacy questionnaires MUST match what the app does *now*, not the
-> v2 vision. Either keep this clearly marked as future and make sure the
-> store forms describe only live behaviour, or remove it until the feature
-> ships. Also inherits the deletion-mechanism gap flagged above.
+> ✅ RESOLVED 2026-09-08: this feature is live (Progress Notes), not planned —
+> label and description updated to match. Discarded/unposted drafts are never
+> retained at all, live-confirmed against the schema.
+
+## AI-assisted coaching support (Gant)
+
+The app includes an AI-assisted layer, internally called "Gant," that helps
+coaches write clearer, more consistent feedback and progress notes.
+
+- A coach dictates or types a raw observation about a team or player. Speech-
+  to-text conversion happens **on the coach's own device** — the audio itself
+  is never sent to our servers or to any third party, only the resulting
+  text.
+- When the coach opens that draft to review it (or asks for a further
+  refinement round), the raw text is sent to a secure backend function, which
+  sends it on to Anthropic's Claude AI (see "Overseas disclosure" below) to
+  check it against the club's feedback model and phases of play, tidy it up,
+  and suggest improvements. The coach can ask for further rounds of
+  refinement as many times as needed.
+- **This is linked only to an internal ID for the coach and, where
+  applicable, the player being written about — never their name, email,
+  phone number or date of birth.** That ID can still technically be traced
+  back to a person within our systems, so we treat it as personal information
+  and apply the same protections described throughout this policy.
+- The coach keeps full control at every step: Gant never posts, edits, or
+  sends feedback on its own. Only the coach's own decision to post makes
+  anything visible to a player or caregiver, and posted feedback is
+  presented as being from the coach — Gant's involvement isn't shown to
+  players or caregivers reading it.
+- The original raw dictation/text for an entry is discarded the moment the
+  coach either posts or discards that entry — it is never kept separately
+  once resolved either way.
+- Separately, we keep a simple internal log of how many refinement rounds an
+  entry needed and whether it was posted or discarded, so we can improve
+  Gant's guardrails over time. This log identifies the player only by the
+  same internal ID (never by name), is visible only to admin, and is never
+  shown to coaches, players or caregivers.
+- Anthropic does not use this data to train its models, under the terms we
+  use its API on.
+
+> ✅ RESOLVED 2026-09-08: this feature is live, not planned — rewritten from
+> the old [PLANNED] wording to match the shipped `gant-ai-feedback-assistant`
+> build. Confirmed against the actual schema/RLS, not just the original
+> design notes (refinement happens when the coach opens/works a draft, not
+> automatically the instant they capture it).
+>
+> ⚠️ REVIEW: confirm this section's plain-language description still matches
+> the live UI/flow at publish time, and add Anthropic to the store privacy
+> questionnaires (Apple "App Privacy", Google "Data Safety") alongside the
+> providers already listed under "Overseas disclosure."
 
 ## Anonymised summary data
 
-Separately, coaches and admin use agreed feedback to build an ongoing summary
-of team and player development, scored against a defined list of phases of
-play in football (e.g. attacking, defending, transition) and rated
-accordingly.
+**Today**, any AI-generated player or team progress summary is personal
+information — it is linked to a specific player (or team) and is kept under
+the same rule as the rest of your information (see "How long we keep your
+information" above), not indefinitely.
 
-This summary is aggregated — it is associated only with an age group and team,
-and is not intended to identify any individual. It is used only to understand
-overall team progress through the grades, coaching effectiveness, and typical
-player development within a year group, never to identify or profile a person.
-Because it is aggregated in this way, it may be retained for longer than the
-12-month period described above.
+We plan a future version where coaches' and admin's accumulated feedback is
+used to build a genuinely **de-identified** summary — one with no link back
+to any individual, associated only with an age group and team, showing
+patterns like typical development through the grades or which areas need more
+coaching focus across a group. Because a summary built this way would contain
+no personal information, it could be kept for longer than the rule above. This
+is **not built yet**, and this policy will be updated to describe it
+accurately, with the real safeguards in place, once (and if) it exists.
 
-> ⚠️ REVIEW (de-identification — confirm before publishing): the claim was
-> softened from "cannot be linked back to any individual" to "aggregated … not
-> intended to identify". With small squads a team+age-group summary can
-> sometimes single out a player (e.g. the only goalkeeper in a team of 9).
-> Before publishing, confirm the data model genuinely aggregates rather than
-> storing per-player rows tagged with a team — if it stores per-player detail,
-> this is personal information and the 12-month deletion rule applies to it too.
+> ✅ RESOLVED 2026-09-08 (was: an unverified de-identification claim). Checked
+> against the live schema: today's player summaries carry a direct
+> foreign key to the player and are readable by that player/caregiver, so an
+> "aggregated, not intended to identify" claim was not true and has been
+> removed. The genuinely de-identified version is confirmed **deferred to a
+> future version** — see `docs/data-retention-scoping.md`'s "DECISIONS
+> LOCKED" section, decision #2. Do not restore the old wording until that
+> version is actually built (no link back to a person, e.g. no foreign key),
+> matching this section's own "not built yet" framing.
 
 ## Purpose limitation
 
@@ -228,24 +301,52 @@ information each provider needs to do its job, and only for that purpose:
 - **Netlify and Cloudflare** — host the app and manage its web address. These
   process technical connection information such as IP addresses in the normal
   course of serving the app.
+- **Anthropic** — powers "Gant," the AI-assisted layer that helps coaches
+  refine feedback and progress notes (see "AI-assisted coaching support"
+  above). Receives the draft feedback text and an internal ID for the coach
+  and player — never their name, email, phone number or date of birth.
+  Anthropic's servers are located in the United States, and it does not use
+  this data to train its models.
 
 We do not sell your information, and we do not share it with any provider for
 advertising.
 
-> ⚠️ REVIEW (confirm at publish time): this list is complete as of 2026-08-19.
-> Re-check it against the app before publishing — if any new third-party
-> service is added (analytics, payments, SMS, etc.) it must be added here and
-> in the store questionnaires. Country statements: Supabase Singapore and
-> Resend Japan are confirmed; Netlify/Cloudflare are global CDNs (data may be
-> processed in multiple regions) — the wording above is deliberately general
-> for that reason.
+> ⚠️ REVIEW (confirm at publish time): this list is complete as of 2026-09-08
+> (Anthropic added). Re-check it against the app before publishing — if any
+> new third-party service is added (analytics, payments, SMS, etc.) it must be
+> added here and in the store questionnaires. Country statements: Supabase
+> Singapore and Resend Japan are confirmed; Netlify/Cloudflare are global CDNs
+> (data may be processed in multiple regions); Anthropic US is standard for
+> its commercial API — the wording above is deliberately general where a
+> provider spans multiple regions.
 
 ## Children's information
 
 Players under 16 are added to the app by an adult, never by the child, and
-their information is limited to their first and last name and the team they play
-for. We do not collect a child's own email address, phone number, date of birth
-or photo. For a player under 16, all contact is through their caregiver.
+their information is limited to their first and last name, their date of
+birth (used only as described in "How we use date of birth" — TO ADD, see
+review note), and the team they play for. We do not collect a child's own
+email address or photo. For a player under 16, all contact about them — and
+consent for their information — is with their caregiver, not the child.
+
+A child under 16 can be given their own access to the app (to see their own
+schedule and progress notes, and to message their coach) through a
+device-access code set up by their caregiver or the club — this does **not**
+require the child to have their own email address, and a caregiver can revoke
+it at any time. A child's access is limited to their own information; they
+cannot see other players' details.
+
+> ⚠️ REVIEW (new, 2026-09-08 — reflects the shipped streamlined-invites-and-
+> child-access build): children now have their own direct, limited login and
+> can message a coach — this did not exist when this section was first
+> drafted (2026-08-19) and materially changes the privacy/audience picture.
+> This is a live feature, not planned, and needs: (1) a "How we use date of
+> birth" section (drafted for an earlier version of this policy — see the
+> Project's `privacy-policy-draft_2.md` for a starting point — TO ADD here);
+> (2) the Play Console target-audience declaration below to be revisited with
+> this in mind, not deferred further — an app where children have their own
+> login and can message an adult coach is a materially different declaration
+> than one where children are never account holders at all.
 
 A child comes to the app in one of two ways, and consent for the child's
 information is handled differently in each:
@@ -276,9 +377,10 @@ information at any time by contacting us (see "Your rights" and "Contact us").
 >      caregiver approval activating the child — confirm this matches the shipped
 >      add-a-junior flow and note where the decision is recorded
 >      (`caregiver_approvals` status / `users.active`, and
->      `users.privacy_consent_at` where relevant). NB: the add-a-junior flow is
->      currently blocked by an RLS bug (see NEXT-SESSION-NOTES Task 1) — this
->      wording assumes it works once that is fixed.
+>      `users.privacy_consent_at` where relevant). ✅ 2026-09-08: the RLS bug
+>      that used to block add-a-junior (Task 1) was fixed and shipped
+>      2026-08-20 — this wording now describes live behaviour, not a pending
+>      fix.
 >   3. **Play Console target-audience declaration (decision 3b).** This is an app
 >      *about* children used by *adults* (managers/coaches/caregivers), which
 >      likely keeps it out of Google's Families programme. Make this a deliberate
@@ -318,35 +420,49 @@ contact us at [privacy@clubfootball.app].
 
 ## Open issues summary (delete this whole section before publishing)
 
-Raised 2026-08-17 during review of the first draft.
+Raised 2026-08-17 during review of the first draft; updated 2026-09-08 after
+reconciling this policy against everything actually built (Progress Notes,
+Gant, RSVP, the streamlined child-access model) and locking the retention
+decisions.
 
 **Must fix before publishing:**
 
-1. **Deletion mechanism doesn't exist.** ⏳ MIKE WORKING ON IT. The retention
-   section promises automatic deletion after 12 months; the app only has "mark
-   inactive". Options: (a) build the scheduled deletion job, or (b) reword to
-   describe current behaviour and add the promise later. (Roadmap decision 3c.)
-2. **Privacy contact mailbox may not receive mail.** ⏳ MIKE DECIDING.
-   clubfootball.app is send-only; `privacy@` must land somewhere monitored, or be
-   replaced with a real monitored address, before publishing. Flagged as an OPEN
-   ACTION in both "Your rights" and "Contact us". A dead inbox = compliance fail.
-   (Ties to the open EMAIL_REPLY_TO decision.)
-3. **Children's information section — DRAFTED 2026-08-19, 3 things to close.**
-   Both consent paths are now written: External League teams (consent held by
-   the club via Friendly Manager) and Club Tournament teams (in-app add-a-junior,
-   caregiver approves). Remaining before publish: (i) obtain Friendly Manager's
-   own privacy wording and reference it — MIKE TO GET; (ii) confirm the in-app
-   consent record matches the shipped flow (and note the add-junior RLS bug,
-   NEXT-SESSION Task 1, must be fixed first); (iii) the Play Console
-   target-audience call (decision 3b).
+1. **Retention/deletion — decisions locked, build not finished.** ✅ The
+   *rules* are now settled (`docs/data-retention-scoping.md`'s "DECISIONS
+   LOCKED" section: in-place removal of personal fields, not account
+   deletion; 12 months after no role; monthly admin review with a 30-day
+   grace window; 90 days for an unconfirmed child invite). ⏳ **STILL TO
+   BUILD**: the scheduled job, the review queue, and the Desktop "Data
+   Retention & Privacy Assurance" report — spec drafted at
+   `.kiro/specs/data-retention-privacy/requirements.md`, not yet designed or
+   built. **Do not publish the "How long we keep your information" section
+   as-is until this is built and live-verified** — see the REVIEW note on
+   that section.
+2. **Privacy contact mailbox may not receive mail.** ⏳ MIKE DECIDING, still
+   open. `privacy@clubfootball.app` does not currently receive mail — must be
+   made to receive mail, or replaced with a real monitored address, before
+   publishing. A dead inbox is a compliance failure regardless of how good the
+   rest of the policy is.
+3. **Children's information — mostly current, 4 things to close.** Both
+   consent paths are written (External League via Friendly Manager, Club
+   Tournament via in-app add-a-junior with caregiver confirmation), and the
+   new direct child login is now described. Remaining: (i) obtain Friendly
+   Manager's own privacy wording and reference it — MIKE TO GET; (ii) write
+   the "How we use date of birth" section (a decent starting draft already
+   exists in the Project's `privacy-policy-draft_2.md` — port and verify it
+   against the shipped self-declared-DOB flow rather than copying blind);
+   (iii) the Play Console target-audience declaration (decision 3b) — now
+   more consequential given direct child login + child-to-coach messaging,
+   needs a deliberate decision, not a default; (iv) confirm the in-app
+   consent record still matches the shipped add-a-junior flow end to end.
 
 **Should review — NEED A DECISION FROM MIKE:**
 
 - **Naming:** publish under the product name (Club Football / clubfootball.app)
   or the club name (West Coast Rangers FC)? Sets who "we" is and fills [App Name].
-- **v2 coach-feedback section:** keep it in, clearly marked [PLANNED], or remove
-  it until the feature ships? Either way the store questionnaires must describe
-  only live behaviour.
+- **Supabase plan/PITR confirmation** (new, 2026-09-08): the retention
+  section's backup-persistence wording needs the actual plan/PITR setting
+  confirmed — see `docs/data-retention-scoping.md` decision #10.
 
 **Confirmed / resolved:**
 
@@ -354,14 +470,21 @@ Raised 2026-08-17 during review of the first draft.
 - ✅ No analytics or crash-reporting SDK ships today — the collection line was
   removed and a positive "we do not collect" statement added.
 - ✅ Push notifications are the only device permission currently requested.
-- ✅ **Overseas disclosure section written** (2026-08-19) — Supabase, Firebase
-  Cloud Messaging, Resend, Netlify/Cloudflare, each with what it receives.
-  Re-confirm the list is complete at publish time.
-- ✅ **Live features listed** under "Why we collect it" (Team Messaging,
-  Schedule, Coaching resources). Add RSVP when V1.7 ships.
-- ✅ **Anonymised-summary claim softened** from "cannot be linked back" to
-  "aggregated / not intended to identify". Still confirm the data model before
-  publishing.
+- ✅ **Overseas disclosure section** — Supabase, Firebase Cloud Messaging,
+  Resend, Netlify/Cloudflare, and (added 2026-09-08) **Anthropic** for Gant,
+  each with what it receives. Re-confirm the list is complete at publish time.
+- ✅ **Live features listed** under "Why we collect it", including RSVP
+  (added 2026-09-08, V1.7 shipped).
+- ✅ **Coach feedback / Progress Notes section rewritten as live** (2026-09-08)
+  — was incorrectly labelled [PLANNED].
+- ✅ **AI-assisted coaching support (Gant) section rewritten as live**
+  (2026-09-08) — was incorrectly labelled a future feature; description
+  checked against the actual shipped schema/flow, not just the original
+  design notes.
+- ✅ **Anonymised-summary claim corrected** (2026-09-08) — today's player/team
+  summaries are personal information (direct FK to the player), not
+  anonymised. A genuinely de-identified version is explicitly a future,
+  not-yet-built piece (`docs/data-retention-scoping.md` decision #2).
 
 **Not legal advice.** Have the children's-data and retention sections
 reviewed by someone qualified before publishing.
