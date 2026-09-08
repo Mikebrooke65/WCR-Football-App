@@ -2,6 +2,46 @@
 
 All notable changes to the football coaching app prototype will be documented in this file.
 
+## [2026-09-08] - Schedule fixes found while live-testing V1.7
+
+### Fixed
+- **Events you just created no longer hide at the bottom of the desktop
+  schedule.** The desktop list sorted every event into one ascending run,
+  oldest first, so a meeting created for tomorrow appeared below months of
+  history — it read as though it hadn't been created at all. Desktop now
+  matches the mobile page: upcoming events soonest-first at the top, past
+  events greyed out under a "Past Events" heading. Past cards stay clickable
+  so an admin can still open and edit them. (Desktop is admin-only, so no
+  non-admin view is affected.)
+- **The "Send Reminder" message now counts everyone who replied**, not just
+  the people coming. It read "We've only had N replies so far" using the
+  *attending* count, so anyone who answered "Can't Go" or "Maybe" was
+  reported as not having replied — on a team where four of five had
+  answered, it told everyone there had been one reply and nudged people who
+  had already responded. It also always said "replies", so a single
+  response read "1 replies".
+
+### Technical Notes
+- `DesktopSchedule.tsx`: `sortedEvents` replaced by `upcomingEvents` /
+  `pastEvents` (same split and comparators as `Schedule.tsx`), card markup
+  extracted to `renderEventListCard(event, isPast)` so both sections share
+  it, and `getCardBackgroundColor` gained the `isPast` flat-grey branch.
+  Adds mobile's two empty states ("No events scheduled" / "No upcoming
+  events").
+- New `eventsApi.getResponseCounts()` counts any real answer
+  (`.neq('status','no_response')`). `getAttendeeCounts` is deliberately
+  unchanged — it filters to `going` and that is correct for the "X/Y
+  attending" counter it feeds; the bug was reusing it for "replies".
+- New `src/lib/reminder-message-logic.ts` (`buildReminderPrefill`, pure +
+  9 tests incl. fast-check): correct pluralisation, an honest denominator
+  ("3 of 5 replies"), and the edge cases that otherwise read badly — nobody
+  replied yet, exactly one reply, everyone already replied (no nagging),
+  and unknown roster size (denominator omitted rather than "of 0").
+- **Both Schedule pages previously held their own identical inline copy of
+  that reminder template**, so any wording fix had to be made twice and
+  could silently drift. Both now call the shared builder.
+- Test baseline 291 → **300 passed | 2 skipped**.
+
 ## [2026-09-08] - V1.7: RSVP per child + RSVP reminders
 
 Built from the locked handoff spec `.kiro/specs/v1.7-rsvp-availability/`

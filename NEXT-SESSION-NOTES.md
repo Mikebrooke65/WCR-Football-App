@@ -41,25 +41,113 @@ tests across `rsvp-identities.test.ts`, `rsvp-reminders-logic.test.ts`,
   payload.
 - Full technical detail in `CHANGELOG.md`'s 2026-09-08 "V1.7" entry.
 
-**Deploys + verification owed (do these before V1.7 counts as done):**
-1. Run migration `077` in the Supabase SQL Editor (Piece A).
-2. Run migration `078` in the SQL Editor (Piece B — `rsvp_reminders_sent` +
-   the hourly cron schedule). Needs the Vault `service_role_key` secret from
-   migration 042 — should already exist if 042 is applied; the migration
-   file has the one-line fallback if not.
-3. Deploy the new function: `supabase functions deploy send-rsvp-reminders`.
-   The cron job will error harmlessly each tick until this is done.
-4. **Live-test Piece A:** a caregiver with 2+ children on the same team sees
-   the multi-identity modal, sets a different RSVP per child, each persists
-   independently; a single-identity user sees no behaviour change; the
-   "X/Y attending" counter and attendee list still read correctly.
-5. **Live-test Piece B:** create (or use) an event ~24h out with a roster
-   member who hasn't responded and has a registered device token; confirm
-   one push arrives around the scheduled hour, tapping it opens Schedule
-   scrolled to that event, and a second scheduler tick does not re-send.
+**Deploys — ALL DONE 2026-09-08.** Migration `077` run (verified: column
+present + NOT NULL, old `unique(event_id,user_id)` gone, new
+`event_rsvps_event_subject_key` present, only the new caregiver-aware RLS
+policy on the table). Migration `078` run (cron job id 2). Edge Function
+deployed (`supabase functions deploy send-rsvp-reminders`). **Nothing is
+owed to production for V1.7.**
 
-**What's left for V1 (down to 2 once V1.7 is live-verified):** privacy +
-retention (last, hard gate) → V1.9 store.
+**Piece B — LIVE-VERIFIED 2026-09-08. Working end to end.** Evidence from
+`net._http_response`:
+- The **hourly cron fires unprompted** — 200s logged at 01:00 and 02:00 UTC
+  with `eventsChecked: 0` (correct quiet behaviour, nothing in window).
+- With a real event 24.5h out on a 5-member team:
+  `{"eventsChecked":1,"remindersSent":1,"summary":[{"owed":5,"recipients":5,"sent":1}]}`
+  — window matching, roster resolution and FCM delivery all confirmed.
+  `sent: 1` because only one of the five has a registered device token.
+- **Requirement B4 (don't double-notify) confirmed:** an immediate second
+  run returned `{"sent":0,"owed":5,"recipients":5,"alreadyNotified":5}`.
+
+**Piece A — half verified.** Requirement A2 (single identity ⇒ unchanged)
+confirmed live: Hewie Duck (player, no linked children) sees the plain
+three buttons, exactly as before. **The multi-identity modal (A3/A4) has
+NOT been opened yet** — see "Still to verify" below.
+
+**Still to verify (small, needs a person not a session):**
+1. **Piece A multi-child modal.** Log in as **Mortimer Mouse** (manager +
+   caregiver on Riverhead Frogs `befd2bbb-449f-44fb-8ede-bded0ea2ca70`,
+   which has George Pig and Amy Brooke as child players). Tapping Going on
+   a Riverhead Frogs event should open a per-person modal. Set different
+   answers per child and confirm each persists independently.
+2. **Caregiver routing inside the reminder.** `recipients: 5` on a roster
+   of 5 (3 adults + 2 children) is ambiguous: it is correct IF the two
+   children have distinct caregivers who are not on the team, but it is
+   ALSO exactly what you would see if the child→caregiver mapping silently
+   no-opped (e.g. `users.is_child` not set on those accounts, so each
+   person mapped to themselves). Resolve by checking, for that event, that
+   each child has `got_the_reminder = false` while their caregiver has
+   `true`. **Unresolved — do this before trusting caregiver reminders.**
+3. **Deep link on tap (B5).** Needs the native app; a browser can never
+   receive a push (`usePushNotifications` no-ops off-device). Deferred to
+   the V1.9 store build.
+
+**Reach caveat worth knowing (not a bug).** The automated reminder is
+**push-only** by spec ("In-app notification centre" is explicitly out of
+scope for Piece B), so until the native app is in people's hands (V1.9) it
+reaches nobody on the web app. The **manual "Send Reminder" button** on an
+event card is unaffected — it sends a real team message, so it lands in the
+Messages inbox (web included) *and* pushes. If reach before V1.9 matters,
+the smallest fix is having the automated reminder also write a `messages`
+row; noted, not built.
+
+**Also shipped this session, outside the V1.7 spec** (both found by using
+the app while testing, both pushed + live):
+- **Desktop schedule past/upcoming split** (`6281922`). The desktop list
+  sorted every event ascending into one run, so an event created for
+  tomorrow appeared at the very bottom under months of history and looked
+  like it hadn't been created. Now matches mobile: upcoming soonest-first,
+  greyed "Past Events" below. Desktop is admin-only, so no non-admin impact.
+- **Send Reminder reply count** (`c5f76e6`). The pre-filled message said
+  "We've only had N replies", where N came from `getAttendeeCounts` —
+  which filters `status='going'`. Anyone who answered "Can't Go" or
+  "Maybe" was reported as not having replied, and it always said "replies"
+  ("1 replies"). New `getResponseCounts` + shared
+  `src/lib/reminder-message-logic.ts` (9 tests): "3 of 5 replies", correct
+  singular/plural, and sensible wording at 0 / 1 / everyone-replied. Both
+  Schedule pages had their own inline copy of that template and now share
+  one builder.
+
+**Data cleanup done 2026-09-08:** there were **two teams both named
+"Riverhead Frogs"** (both `Open`). The older (`ae03c4b0…`, 17 Aug) had zero
+members and existed only because a team was created and self-invited that
+day; the real one (`befd2bbb…`, 25 Aug) has the 5 members. An event created
+against the empty one was invisible to every non-admin and could never
+trigger a reminder — which is what sent this session down a long detour.
+The empty team was deleted (its only attachments were an already-expired
+self-invite and one test event).
+
+**Backlog found while testing V1.7 — none of it V1.7's fault, all real:**
+1. **Duplicate team names are allowed and indistinguishable.** Nothing
+   stops two teams sharing a name on the Teams admin page, and the event
+   dropdown shows only `{age_group} {name}` — so picking the wrong one is
+   invisible. Suggest blocking duplicate names, and/or showing member count
+   in the dropdown.
+2. **No warning when targeting a team with no members.** Creating an event
+   for an empty team silently produces something no non-admin can see and
+   that no reminder will ever fire for. A one-line "this team has no
+   members yet" note on the create form would have caught the whole thing.
+3. **No way to delete an event, anywhere.** `eventsApi.deleteEvent()`
+   exists but is wired to no button on either mobile or desktop. Events can
+   be created and edited, never removed — cleanup currently needs SQL.
+4. **Deleting a team silently orphans its events.** `events.target_teams`
+   is a `uuid[]`, so Postgres cannot enforce referential integrity on it
+   and there is no cascade. Orphaned events survive pointing at nothing:
+   visible to admins (who bypass targeting), invisible to everyone else,
+   showing no team name. Needs either a cleanup pass on team delete, or a
+   periodic sweep.
+5. **New events show 0 counts until refresh.** Both Schedule pages do
+   `setEvents([...events, newEvent])` after create but never refetch
+   `attendeeCounts` / `totalMemberCounts`, so a new card reads `0/0` until
+   the page reloads. Cosmetic, but it reads as "the event is broken".
+6. **An event created <25h before it starts can slip through unreminded.**
+   The scheduler catches the (24h, 25h] window hourly; an event created
+   inside that window between ticks is never caught. Academic for a 24h
+   reminder, baffling in six months without this note. Added to the spec's
+   Deferred list.
+
+**What's left for V1 (down to 2):** privacy + retention (last, hard gate)
+→ V1.9 store.
 
 ---
 
