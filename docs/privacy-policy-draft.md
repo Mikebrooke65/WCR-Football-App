@@ -159,15 +159,21 @@ You have the right to ask for a copy of any personal information we hold about
 you, and to ask for it to be corrected if you think it is wrong. To do this,
 contact us at [privacy@clubfootball.app].
 
-> ⚠️ OPEN ACTION (MUST FIX before publishing — Mike deciding): this policy
-> needs a **live, monitored inbox** for privacy requests. `privacy@clubfootball.app`
-> does NOT currently receive mail — the clubfootball.app domain is send-only in
-> Resend ("Enable Receiving" off, no mailbox). The Privacy Act requires a working
-> channel to exercise access/correction rights, so before publishing this
-> address must either be made to receive mail, or be replaced with a real
-> monitored address. **A published policy pointing at a dead inbox is a
-> compliance failure.** Mike is deciding which address to use (ties to the open
-> EMAIL_REPLY_TO decision). Do not publish until this resolves.
+> ⚠️ OPEN ACTION (MUST FIX before publishing — Mike actioning, 2026-09-08):
+> this policy needs a **live, monitored inbox** for privacy requests.
+> `privacy@clubfootball.app` does NOT currently receive mail — the
+> clubfootball.app domain is send-only in Resend ("Enable Receiving" off, no
+> mailbox). The Privacy Act requires a working channel to exercise
+> access/correction rights. **Path decided 2026-09-08**: `clubfootball.app`
+> is already registered + DNS-hosted at Cloudflare Registrar (see
+> `NEXT-SESSION-NOTES.md`'s "V1.0 Buy a Product Domain"), so **Cloudflare
+> Email Routing** (free, built into that same dashboard) forwards
+> `privacy@clubfootball.app` straight to a real inbox Mike checks — no new
+> mailbox to host, no conflict with the existing Netlify apex records or the
+> `send.clubfootball.app` Resend records (different record types). Still
+> outstanding: Mike to actually enable it and confirm the destination
+> address. **A published policy pointing at a dead inbox is a compliance
+> failure — do not publish until this is confirmed live.**
 
 ## Coach feedback and progress notes on player performance
 
