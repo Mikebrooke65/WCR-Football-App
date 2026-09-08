@@ -38,15 +38,29 @@ push).
   linked children on the target team); 1 identity → existing buttons unchanged;
   2+ → new `RsvpIdentitiesModal` with per-identity Going/Maybe/Can't-Go +
   decline-reason, each saving immediately (design A.4).
-- [ ] A7. **Verify A** — PARTLY DONE 2026-09-08. Build clean, unit tests pass,
-  vitest baseline holds (300 | 2 skipped), migration 077 run and verified in the
-  live DB, and the single-identity case confirmed live (Hewie Duck sees the
-  unchanged three buttons). **Outstanding: the 2-children caregiver modal has
-  not been opened yet** — log in as Mortimer Mouse on Riverhead Frogs
-  (`befd2bbb-449f-44fb-8ede-bded0ea2ca70`; George Pig + Amy Brooke are his
-  child players there), tap Going, confirm the per-identity modal appears and
-  that different answers persist independently. Also confirm the "X/Y
-  attending" counter + attendee list still read correctly.
+- [x] A7. **Verify A** — DONE 2026-09-08, live. Build + unit tests clean
+  (300 passed | 2 skipped). Migrations 077, 079 and 080 all run and
+  verified. Live evidence: single identity unchanged (Hewie Duck, George
+  Pig); multi-identity modal correct for a PURE caregiver (Daddy Pig sees
+  George + Peppa, no self row); independent per-child answers persisting
+  (George `going`, Peppa `not_going / injured` at the same time); correct
+  attribution in the data (two rows, `user_id` = Daddy Pig,
+  `subject_user_id` = each child).
+
+  **Three bugs found and fixed during this verification** — Piece A shipped
+  non-functional for the exact users it was built for, and each bug was
+  hidden behind the previous one:
+  1. `079` — caregivers could not SEE team events at all (migration 023's
+     events policy requires the viewer's own `team_members` row; a
+     caregiver never has one). Same bug 060 fixed for `teams`.
+  2. `8a58b8c` — the single-identity fast path assumed "one identity means
+     me", so a caregiver's tap recorded THEMSELVES, not their child.
+  3. `080` — `USING (user_id = auth.uid())` in 077 meant the RSVP was owned
+     by whoever answered first, so a caregiver could not change a
+     child-created row (and vice versa).
+
+  Also added: the buttons now state whose answer they set ("RSVP for
+  George Pig" / "RSVP for 2 people — tap to choose").
 
 ## Piece B — RSVP reminder push notifications
 

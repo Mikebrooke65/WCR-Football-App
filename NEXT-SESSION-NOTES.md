@@ -59,77 +59,68 @@ owed to production for V1.7.**
 - **Requirement B4 (don't double-notify) confirmed:** an immediate second
   run returned `{"sent":0,"owed":5,"recipients":5,"alreadyNotified":5}`.
 
-**Piece A — half verified, and ONE REAL BUG FOUND + FIXED (migration 079,
-still to run).** Requirement A2 (single identity ⇒ unchanged) confirmed
-live: Hewie Duck and George Pig (players, no linked children) both see the
-plain three buttons, unchanged. **The multi-identity modal (A3/A4) has NOT
-been opened yet.**
+**Piece A — COMPLETE and live-verified 2026-09-08**, after three separate
+bugs were found and fixed in sequence, each hidden behind the one before
+it. It shipped genuinely non-functional for the people it was built for.
 
-**The bug — Piece A's main use case did not work at all.** Testing as
-Daddy Pig (caregiver of George Pig, who plays for Riverhead Frogs) showed
-"No upcoming events", while George — same club, same event — saw them
-fine. Cause: migration 023's `events` SELECT policy resolves team
-targeting with `team_members.user_id = auth.uid()`, i.e. it requires the
-REQUESTING user to hold their own `team_members` row. A caregiver never
-has one; only their child does. So every team event was invisible to a
-pure caregiver, and Piece A's identity logic — which explicitly supports
-"pure caregiver, no membership, one identity per child" and has a unit
-test for exactly that — could never run, because the event was hidden
-first. **This is the same bug migration 060 fixed for the `teams` table in
-August; `events` never got the matching treatment.** It stayed hidden
-because every caregiver tested before now ALSO held a coach/manager row on
-the team, which satisfied the existing clause and masked it.
+*Bug 1 — caregivers could not see events at all (migration `079`, run).*
+Daddy Pig (caregiver of George Pig, a Riverhead Frogs player) saw "No
+upcoming events" while George, same club and event, saw them fine.
+Migration 023's `events` SELECT policy resolves team targeting with
+`team_members.user_id = auth.uid()`, requiring the REQUESTING user to hold
+their own membership row. A caregiver never has one. So Piece A's identity
+logic — which explicitly supports "pure caregiver, no membership, one
+identity per child" and unit-tests that case — could never run: the event
+was filtered out first. Same bug migration 060 fixed for `teams` in
+August; `events` never got the treatment. It stayed hidden because every
+caregiver tested before now ALSO held a coach/manager row, which satisfied
+the existing clause.
 
-**Migration `079` fixes it** with an additive second SELECT policy on
-`events` (mirroring 060's shape — the existing multi-branch policy is left
-untouched, since Postgres ORs permissive policies and rewriting it risks
-silently dropping a branch). Verified on a local Postgres 16 instance
-reproducing both policies: before, caregiver sees 0 events / 0 RSVPs;
-after, 1 and 1; the child's view is unchanged and an unrelated user still
-sees nothing. **`event_rsvps` needed no change** — 023's "Users can view
-RSVPs for visible events" nests the events policy, so the child's RSVP row
-becomes visible automatically. `team_members` needed no change either
-(already readable by any authenticated user).
+*Bug 2 — the single-identity path targeted the wrong person (`8a58b8c`).*
+The fast path assumed "one identity means me" and passed no subject, so
+`setRsvp` defaulted to the logged-in user. Right for a player; wrong for a
+caregiver, whose one identity is their CHILD. A caregiver tapping Going
+recorded themselves as attending a team they are not on, while the child
+still owed a response. Same wrong assumption was in the button
+highlighting. Now passes the sole identity explicitly.
 
-**Second RLS bug, found + fixed the same evening (migration `080`, still
-to run).** With 079 in place, George Pig answered "Can't Go" himself and
-then Daddy Pig tried to change it to "Going" — live error: `new row
-violates row-level security policy (USING expression) for table
-"event_rsvps"`. Migration 077's policy had `USING (user_id = auth.uid())`,
-which only matches rows you SUBMITTED. Since `setRsvp` upserts on
-`(event_id, subject_user_id)`, changing an answer updates whoever's row
-already exists — so the RSVP was effectively owned by whoever answered
-first: a child answering first locked the caregiver out, and (the mirror
-case, equally broken but not hit) a caregiver answering first locked the
-CHILD out of their own RSVP. Migration `080` widens `USING` to also match
-rows about you or about a linked child; `WITH CHECK` is unchanged, so what
-can be WRITTEN is not widened at all. Verified on local Postgres 16:
-before, both updates fail; after, both succeed, while an unrelated user
-still sees nothing, cannot update, and cannot forge a row about someone
-else's child.
+*Bug 3 — a caregiver could not CHANGE an existing answer (migration `080`,
+run).* Live error: `new row violates row-level security policy (USING
+expression) for table "event_rsvps"`. Migration 077's `USING (user_id =
+auth.uid())` matched only rows you SUBMITTED, and since `setRsvp` upserts
+on `(event_id, subject_user_id)`, changing an answer updates whoever's row
+exists — so the RSVP was owned by whoever answered first. Child first
+locked out the caregiver (the live error); caregiver first locked the
+CHILD out of their own RSVP (the mirror case, equally broken, not hit in
+testing). `080` widens USING to rows about you or about a linked child;
+WITH CHECK is unchanged, so nothing new can be written.
 
-**Also fixed in the client (`8a58b8c`):** Piece A's single-identity fast
-path assumed "one identity means me" and passed no subject to `setRsvp`,
-so a pure caregiver with one child recorded the RSVP against THEMSELVES —
-appearing as attending a team they aren't on, while the child still owed a
-response. Now passes the sole identity explicitly. The same wrong
-assumption was in the button highlighting. That commit also adds the label
-this screen needed: a caregiver now sees "RSVP for George Pig" above the
-buttons (and "RSVP for 3 people — tap to choose" when there are several),
-so it is never ambiguous whose answer is being set.
+*Verification evidence (all live, 2026-09-08):*
+- A1/A2 single identity unchanged — Hewie Duck and George Pig both see the
+  plain three buttons.
+- A3 multi-identity modal — Daddy Pig, caregiver of George AND Peppa Pig on
+  the same team, gets a modal listing both children and **no self row**
+  (correct: he has no membership of his own).
+- A4 independent + immediate — George `going` and Peppa `not_going /
+  injured` held simultaneously on the same event, persisting across a
+  refresh.
+- A5 data model — two `event_rsvps` rows for one event, both
+  `user_id = Daddy Pig` with `subject_user_id` George and Peppa
+  respectively. Structurally impossible under the old
+  `unique(event_id, user_id)`.
+- A7 security — 079 and 080 each verified on a local Postgres 16 instance
+  reproducing the real policies and data: the intended access works, an
+  unrelated user still sees nothing, cannot update, and cannot forge a row
+  about someone else's child.
+
+**Also added while fixing this:** the RSVP buttons now say whose answer
+they set — "RSVP for George Pig", or "RSVP for 2 people — tap to choose".
+Without it a caregiver saw three unlabelled buttons identical to a
+player's, which cost real time during testing and would have confused
+every parent.
 
 **Still to verify (small, needs a person not a session):**
-0. **RUN MIGRATIONS `079` AND `080`** — until it is run, a caregiver who is not
-   also a coach/manager sees no events at all, so items 1 and 2 below
-   cannot be tested properly. After running it, re-check as **Daddy Pig**:
-   he should now see the Riverhead Frogs events, and tapping Going should
-   give him a modal with George Pig on it (he has no membership of his
-   own, so George should be his ONLY identity — no "self" row).
-1. **Piece A multi-child modal.** Log in as **Mortimer Mouse** (manager +
-   caregiver on Riverhead Frogs `befd2bbb-449f-44fb-8ede-bded0ea2ca70`,
-   which has George Pig and Amy Brooke as child players). Tapping Going on
-   a Riverhead Frogs event should open a per-person modal. Set different
-   answers per child and confirm each persists independently.
+1. ~~Piece A multi-child modal~~ — DONE, see the Piece A evidence above.
 2. **Caregiver routing inside the reminder.** `recipients: 5` on a roster
    of 5 (3 adults + 2 children) is ambiguous: it is correct IF the two
    children have distinct caregivers who are not on the team, but it is
