@@ -645,7 +645,16 @@ export interface Event {
 export interface EventRsvp {
   id: string;
   event_id: string;
+  /** Who actually submitted this RSVP (audit) — the logged-in user. */
   user_id: string;
+  /**
+   * Who this RSVP is ABOUT (migration 077, V1.7 Piece A). Equal to `user_id`
+   * for a normal self-RSVP; set to a linked child's `users.id` when a
+   * caregiver responds on their behalf. Uniqueness is on
+   * `(event_id, subject_user_id)`, not `(event_id, user_id)` — one login can
+   * hold several RSVP rows for one event.
+   */
+  subject_user_id: string;
   status: 'going' | 'not_going' | 'maybe' | 'no_response';
   responded_at: string | null;
   decline_reason: 'late' | 'sick' | 'injured' | 'holiday' | 'other' | null;

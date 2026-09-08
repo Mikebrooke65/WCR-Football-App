@@ -1,12 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router';
 import { Calendar, Clock, MapPin, CheckCircle, XCircle, HelpCircle, Plus, Users, Bell, X } from 'lucide-react';
 import { eventsApi } from '../lib/events-api';
 import type { EventAttendeeDetails } from '../lib/events-api';
 import { messagingApi } from '../lib/messaging-api';
+import { caregiversApi } from '../lib/caregivers-api';
+import { resolveRsvpIdentities } from '../lib/rsvp-identities';
+import type { RsvpIdentity } from '../lib/rsvp-identities';
 import { useAuth } from '../contexts/AuthContext';
 import { MessagingProvider } from '../contexts/MessagingContext';
 import { ComposeForm } from '../components/messaging/ComposeForm';
-import type { Event, EventRsvp, Team } from '../types/database';
+import type { Event, EventRsvp, Team, TeamRole } from '../types/database';
 
 const REQUIRED_FIELD_LABELS: Record<string, string> = {
   title: 'Title',
@@ -19,8 +23,19 @@ const REQUIRED_FIELD_LABELS: Record<string, string> = {
 
 export function Schedule() {
   const { user } = useAuth();
+  // V1.7 Piece B (Requirement B5/B6): an RSVP reminder push deep-links here
+  // as `/schedule?event=<id>` (see push-routing-logic.ts). Once events have
+  // loaded, scroll that card into view and briefly highlight it so the tap
+  // actually lands the person on the thing they were reminded about,
+  // instead of just opening the page and leaving them to scroll and find it.
+  const [searchParams] = useSearchParams();
+  const highlightedEventId = searchParams.get('event');
   const [events, setEvents] = useState<Event[]>([]);
-  const [rsvps, setRsvps] = useState<Record<string, EventRsvp>>({});
+  // V1.7 Piece A: keyed by event id, then by subject_user_id — a caregiver
+  // can hold more than one RSVP per event, one per linked child (plus their
+  // own if they're also a member of the team). See rsvp-identities.ts.
+  const [rsvps, setRsvps] = useState<Record<string, Record<string, EventRsvp>>>({});
+  const [linkedChildren, setLinkedChildren] = useState<{ id: string; name: string; teamIds: string[] }[]>([]);
   const [attendeeCounts, setAttendeeCounts] = useState<Record<string, number>>({});
   const [totalMemberCounts, setTotalMemberCounts] = useState<Record<string, number>>({});
   const [filter, setFilter] = useState<'all' | 'game' | 'training' | 'general'>('all');
@@ -49,7 +64,13 @@ export function Schedule() {
   // Decline reason modal state
   const [declineModalOpen, setDeclineModalOpen] = useState(false);
   const [declineEventId, setDeclineEventId] = useState<string | null>(null);
+  const [declineSubjectUserId, setDeclineSubjectUserId] = useState<string | undefined>(undefined);
   const [declineReason, setDeclineReason] = useState<'late' | 'sick' | 'injured' | 'holiday' | 'other'>('sick');
+
+  // Multi-identity RSVP modal — shown when a caregiver (or a coach/manager
+  // who is also a caregiver) has more than one identity they can RSVP as
+  // for a given event (Requirement A5/A6, `rsvp-identities.ts`).
+  const [rsvpModalEvent, setRsvpModalEvent] = useState<Event | null>(null);
   // Form state
   const [formData, setFormData] = useState({
     title: '',
@@ -67,11 +88,64 @@ export function Schedule() {
     loadTeams();
   }, []);
 
+  useEffect(() => {
+    if (!highlightedEventId || loading) return;
+    const el = document.getElementById(`event-${highlightedEventId}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightedEventId, loading, events]);
+
+  // V1.7 Piece A (Requirement A1-A4): the set of identities a caregiver can
+  // RSVP as for each event — themselves (if they hold a role on the
+  // event's target team) plus one per linked child who plays there. An
+  // event with no target_teams is visible to everyone, so every role/child
+  // the user has anywhere counts for it.
+  const identitiesByEvent = useMemo(() => {
+    const map: Record<string, RsvpIdentity[]> = {};
+    if (!user) return map;
+
+    for (const event of events) {
+      const scoped = event.target_teams && event.target_teams.length > 0;
+
+      const rolesOnTeam: TeamRole[] = [];
+      for (const membership of user.teamMemberships || []) {
+        if (scoped && !event.target_teams.includes(membership.team_id)) continue;
+        rolesOnTeam.push(membership.role);
+        if (membership.is_coach && !rolesOnTeam.includes('coach')) rolesOnTeam.push('coach');
+      }
+
+      const childrenOnTeam = linkedChildren
+        .filter((child) => !scoped || child.teamIds.some((tid) => event.target_teams.includes(tid)))
+        .map((child) => ({ id: child.id, name: child.name }));
+
+      map[event.id] = resolveRsvpIdentities({
+        currentUserId: user.id,
+        currentUserName: `${user.first_name} ${user.last_name}`.trim(),
+        currentUserTeamRoles: rolesOnTeam,
+        linkedChildrenOnTeam: childrenOnTeam,
+      });
+    }
+
+    return map;
+  }, [events, user, linkedChildren]);
+
   const loadEvents = async () => {
     try {
       setLoading(true);
       const data = await eventsApi.getEvents();
       setEvents(data);
+
+      // Linked children (V1.7 Piece A) are best-effort, same reasoning as
+      // teams-api.ts's getMyTeams: a lookup failure here should cost the
+      // caregiver their multi-child RSVP identities, not the whole page.
+      let children: { id: string; name: string; teamIds: string[] }[] = [];
+      if (user?.id) {
+        try {
+          children = await caregiversApi.getCaregiverChildrenWithTeamIds(user.id);
+        } catch (err) {
+          console.error('Failed to load linked children:', err);
+        }
+      }
+      setLinkedChildren(children);
 
       // These three don't depend on each other's results — only on `data`
       // — so run them together instead of one-after-another. Each is a
@@ -79,7 +153,7 @@ export function Schedule() {
       // their latencies up instead of overlapping them, which is most of
       // why the page took several seconds to appear.
       const [rsvpMap, counts, totals] = await Promise.all([
-        eventsApi.getUserRsvps(data.map(e => e.id)),
+        eventsApi.getUserRsvps(data.map(e => e.id), children.map((c) => c.id)),
         eventsApi.getAttendeeCounts(data.map(e => e.id)),
         eventsApi.getTotalMemberCounts(data),
       ]);
@@ -256,41 +330,49 @@ export function Schedule() {
   // made RSVP feel slow — the button used to sit unchanged until the whole
   // request finished, on top of setRsvp itself now being a single upsert
   // instead of two sequential calls (see events-api.ts).
-  const handleRsvp = async (eventId: string, status: 'going' | 'not_going' | 'maybe') => {
+  const handleRsvp = async (
+    eventId: string,
+    status: 'going' | 'not_going' | 'maybe',
+    subjectUserId?: string
+  ) => {
+    const targetId = subjectUserId || user?.id || '';
+
     if (status === 'not_going') {
       setDeclineEventId(eventId);
+      setDeclineSubjectUserId(subjectUserId);
       setDeclineReason('sick');
       setDeclineModalOpen(true);
       return;
     }
 
-    const previousRsvp = rsvps[eventId];
+    const previousRsvp = rsvps[eventId]?.[targetId];
     const previousCount = attendeeCounts[eventId] || 0;
     const oldStatus = previousRsvp?.status;
 
     const optimisticRsvp: EventRsvp = {
-      id: previousRsvp?.id || `optimistic-${eventId}`,
+      id: previousRsvp?.id || `optimistic-${eventId}-${targetId}`,
       event_id: eventId,
       user_id: user?.id || '',
+      subject_user_id: targetId,
       status,
       responded_at: new Date().toISOString(),
       decline_reason: null,
       created_at: previousRsvp?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    setRsvps((prev) => ({ ...prev, [eventId]: optimisticRsvp }));
+    setRsvps((prev) => ({ ...prev, [eventId]: { ...prev[eventId], [targetId]: optimisticRsvp } }));
     let optimisticCount = previousCount;
     if (oldStatus === 'going' && status !== 'going') optimisticCount--;
     if (oldStatus !== 'going' && status === 'going') optimisticCount++;
     setAttendeeCounts((prev) => ({ ...prev, [eventId]: Math.max(0, optimisticCount) }));
 
     try {
-      const rsvp = await eventsApi.setRsvp(eventId, status);
-      setRsvps((prev) => ({ ...prev, [eventId]: rsvp }));
+      const rsvp = await eventsApi.setRsvp(eventId, status, undefined, subjectUserId);
+      setRsvps((prev) => ({ ...prev, [eventId]: { ...prev[eventId], [targetId]: rsvp } }));
     } catch (err) {
       setRsvps((prev) => {
-        const next = { ...prev };
-        if (previousRsvp) next[eventId] = previousRsvp; else delete next[eventId];
+        const next = { ...prev, [eventId]: { ...prev[eventId] } };
+        if (previousRsvp) next[eventId][targetId] = previousRsvp; else delete next[eventId][targetId];
         return next;
       });
       setAttendeeCounts((prev) => ({ ...prev, [eventId]: previousCount }));
@@ -301,35 +383,43 @@ export function Schedule() {
   const handleDeclineConfirm = async () => {
     if (!declineEventId) return;
     const eventId = declineEventId;
+    const subjectUserId = declineSubjectUserId;
+    const targetId = subjectUserId || user?.id || '';
     const reason = declineReason;
-    const previousRsvp = rsvps[eventId];
+    const previousRsvp = rsvps[eventId]?.[targetId];
     const previousCount = attendeeCounts[eventId] || 0;
     const oldStatus = previousRsvp?.status;
 
     const optimisticRsvp: EventRsvp = {
-      id: previousRsvp?.id || `optimistic-${eventId}`,
+      id: previousRsvp?.id || `optimistic-${eventId}-${targetId}`,
       event_id: eventId,
       user_id: user?.id || '',
+      subject_user_id: targetId,
       status: 'not_going',
       responded_at: new Date().toISOString(),
       decline_reason: reason,
       created_at: previousRsvp?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    setRsvps((prev) => ({ ...prev, [eventId]: optimisticRsvp }));
+    setRsvps((prev) => ({ ...prev, [eventId]: { ...prev[eventId], [targetId]: optimisticRsvp } }));
     if (oldStatus === 'going') {
       setAttendeeCounts((prev) => ({ ...prev, [eventId]: Math.max(0, previousCount - 1) }));
     }
     setDeclineModalOpen(false);
     setDeclineEventId(null);
+    setDeclineSubjectUserId(undefined);
+    // Deliberately NOT closing rsvpModalEvent here: when the decline modal
+    // was opened from inside the multi-identity modal, confirming should
+    // return the caregiver to that modal with the updated identity list,
+    // not drop them back to the plain event card.
 
     try {
-      const rsvp = await eventsApi.setRsvp(eventId, 'not_going', reason);
-      setRsvps((prev) => ({ ...prev, [eventId]: rsvp }));
+      const rsvp = await eventsApi.setRsvp(eventId, 'not_going', reason, subjectUserId);
+      setRsvps((prev) => ({ ...prev, [eventId]: { ...prev[eventId], [targetId]: rsvp } }));
     } catch (err) {
       setRsvps((prev) => {
-        const next = { ...prev };
-        if (previousRsvp) next[eventId] = previousRsvp; else delete next[eventId];
+        const next = { ...prev, [eventId]: { ...prev[eventId] } };
+        if (previousRsvp) next[eventId][targetId] = previousRsvp; else delete next[eventId][targetId];
         return next;
       });
       setAttendeeCounts((prev) => ({ ...prev, [eventId]: previousCount }));
@@ -403,7 +493,7 @@ export function Schedule() {
   };
 
   const getRsvpIcon = (eventId: string) => {
-    const rsvp = rsvps[eventId];
+    const rsvp = rsvps[eventId]?.[user?.id || ''];
     const status = rsvp?.status || 'no_response';
     
     switch (status) {
@@ -452,7 +542,10 @@ export function Schedule() {
   const renderEventCard = (event: Event, isPast: boolean) => (
     <div
       key={event.id}
-      className={`rounded-lg shadow-sm px-3 py-2 border border-gray-200 ${isPast ? 'opacity-60' : ''}`}
+      id={`event-${event.id}`}
+      className={`rounded-lg shadow-sm px-3 py-2 border ${isPast ? 'opacity-60' : ''} ${
+        highlightedEventId === event.id ? 'border-[#06b6d4] ring-2 ring-[#06b6d4]' : 'border-gray-200'
+      }`}
       style={{ backgroundColor: getCardBackgroundColor(event.event_type, isPast) }}
     >
       {/* Title row */}
@@ -489,39 +582,50 @@ export function Schedule() {
         <p className="text-xs text-gray-500 italic">Event has passed — RSVP closed</p>
       ) : (
         <div className="flex gap-1.5">
-          <button
-            onClick={() => handleRsvp(event.id, 'going')}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-              rsvps[event.id]?.status === 'going'
-                ? 'bg-green-500 text-white'
-                : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-green-50'
-            }`}
-          >
-            <CheckCircle className="w-3 h-3" />
-            Going
-          </button>
-          <button
-            onClick={() => handleRsvp(event.id, 'maybe')}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-              rsvps[event.id]?.status === 'maybe'
-                ? 'bg-gray-500 text-white'
-                : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-gray-100'
-            }`}
-          >
-            <HelpCircle className="w-3 h-3" />
-            Maybe
-          </button>
-          <button
-            onClick={() => handleRsvp(event.id, 'not_going')}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-              rsvps[event.id]?.status === 'not_going'
-                ? 'bg-red-500 text-white'
-                : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-red-50'
-            }`}
-          >
-            <XCircle className="w-3 h-3" />
-            Can't Go
-          </button>
+          {(() => {
+            const identities = identitiesByEvent[event.id] || [];
+            const multiIdentity = identities.length >= 2;
+            const selfStatus = rsvps[event.id]?.[user?.id || '']?.status;
+            const onTap = (status: 'going' | 'not_going' | 'maybe') =>
+              multiIdentity ? setRsvpModalEvent(event) : handleRsvp(event.id, status);
+            return (
+              <>
+                <button
+                  onClick={() => onTap('going')}
+                  className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    !multiIdentity && selfStatus === 'going'
+                      ? 'bg-green-500 text-white'
+                      : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-green-50'
+                  }`}
+                >
+                  <CheckCircle className="w-3 h-3" />
+                  Going
+                </button>
+                <button
+                  onClick={() => onTap('maybe')}
+                  className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    !multiIdentity && selfStatus === 'maybe'
+                      ? 'bg-gray-500 text-white'
+                      : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <HelpCircle className="w-3 h-3" />
+                  Maybe
+                </button>
+                <button
+                  onClick={() => onTap('not_going')}
+                  className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    !multiIdentity && selfStatus === 'not_going'
+                      ? 'bg-red-500 text-white'
+                      : 'bg-white/70 text-gray-600 border border-gray-200 hover:bg-red-50'
+                  }`}
+                >
+                  <XCircle className="w-3 h-3" />
+                  Can't Go
+                </button>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -943,6 +1047,88 @@ export function Schedule() {
         </div>
       )}
 
+      {/* Multi-identity RSVP Modal — shown when the caregiver (optionally
+          also a player/coach/manager themselves) has more than one identity
+          they can RSVP as for this event (V1.7 Piece A, Requirement A5/A6).
+          Rendered before the Decline Reason Modal below so that when
+          "Can't Go" is tapped for one identity here, the decline modal
+          (same z-50) paints on top of this one. */}
+      {rsvpModalEvent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 py-8">
+            <div className="bg-white rounded-lg max-w-md w-full max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b border-gray-200 sticky top-0 bg-white">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-gray-900 truncate">{getEventTitle(rsvpModalEvent)}</h3>
+                  <p className="text-xs text-gray-500">
+                    {formatDate(rsvpModalEvent.event_date)} — RSVP for each person below
+                  </p>
+                </div>
+                <button
+                  onClick={() => setRsvpModalEvent(null)}
+                  className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-3">
+                {(identitiesByEvent[rsvpModalEvent.id] || []).map((identity) => {
+                  const status = rsvps[rsvpModalEvent.id]?.[identity.subjectUserId]?.status;
+                  const declineReasonForIdentity =
+                    status === 'not_going' ? rsvps[rsvpModalEvent.id]?.[identity.subjectUserId]?.decline_reason : null;
+                  return (
+                    <div key={identity.subjectUserId} className="border border-gray-200 rounded-lg p-3">
+                      <p className="text-sm font-medium text-gray-900 mb-2">
+                        {identity.label}
+                        {declineReasonForIdentity && (
+                          <span className="text-xs text-gray-400 font-normal capitalize"> — {declineReasonForIdentity}</span>
+                        )}
+                      </p>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => handleRsvp(rsvpModalEvent.id, 'going', identity.subjectUserId)}
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                            status === 'going'
+                              ? 'bg-green-500 text-white'
+                              : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-green-50'
+                          }`}
+                        >
+                          <CheckCircle className="w-3 h-3" />
+                          Going
+                        </button>
+                        <button
+                          onClick={() => handleRsvp(rsvpModalEvent.id, 'maybe', identity.subjectUserId)}
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                            status === 'maybe'
+                              ? 'bg-gray-500 text-white'
+                              : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          <HelpCircle className="w-3 h-3" />
+                          Maybe
+                        </button>
+                        <button
+                          onClick={() => handleRsvp(rsvpModalEvent.id, 'not_going', identity.subjectUserId)}
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                            status === 'not_going'
+                              ? 'bg-red-500 text-white'
+                              : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-red-50'
+                          }`}
+                        >
+                          <XCircle className="w-3 h-3" />
+                          Can't Go
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Decline Reason Modal */}
       {declineModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -966,7 +1152,7 @@ export function Schedule() {
             </div>
             <div className="flex gap-3">
               <button
-                onClick={() => { setDeclineModalOpen(false); setDeclineEventId(null); }}
+                onClick={() => { setDeclineModalOpen(false); setDeclineEventId(null); setDeclineSubjectUserId(undefined); }}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel

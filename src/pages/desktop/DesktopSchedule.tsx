@@ -10,7 +10,11 @@ import type { Event, EventRsvp, Team } from '../../types/database';
 export function DesktopSchedule() {
   const { user } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
-  const [rsvps, setRsvps] = useState<Record<string, EventRsvp>>({});
+  // V1.7 Piece A: getUserRsvps now returns event_id -> subject_user_id ->
+  // EventRsvp (a caregiver can hold more than one RSVP per event, one per
+  // child) — this state is fetched but not currently rendered anywhere on
+  // this admin screen, so the shape change has no visible effect here.
+  const [rsvps, setRsvps] = useState<Record<string, Record<string, EventRsvp>>>({});
   const [attendeeCounts, setAttendeeCounts] = useState<Record<string, number>>({});
   const [totalMemberCounts, setTotalMemberCounts] = useState<Record<string, number>>({});
   const [userTeams, setUserTeams] = useState<Team[]>([]);

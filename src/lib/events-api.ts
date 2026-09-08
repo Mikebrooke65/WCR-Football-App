@@ -59,7 +59,14 @@ export class EventsApi extends ApiClient {
     return this.delete('events', eventId);
   }
 
-  // Get user's RSVP for an event
+  // Get the current user's own RSVP for an event (self only — not a
+  // linked child's). Unused by any current call site (superseded by the
+  // batched getUserRsvps below) but kept working rather than left as a
+  // landmine: since migration 077 moved uniqueness to
+  // (event_id, subject_user_id), a caregiver can hold more than one RSVP
+  // row sharing the same user_id (one per child) for the same event, so
+  // filtering only by user_id here would break `.single()`. Filtering by
+  // subject_user_id = self keeps this method's "my own RSVP" meaning exact.
   async getUserRsvp(eventId: string): Promise<EventRsvp | null> {
     const { data: { user } } = await this.supabase.auth.getUser();
     if (!user) return null;
@@ -68,7 +75,7 @@ export class EventsApi extends ApiClient {
       .from('event_rsvps')
       .select('*')
       .eq('event_id', eventId)
-      .eq('user_id', user.id)
+      .eq('subject_user_id', user.id)
       .single();
 
     if (error) {
@@ -78,7 +85,8 @@ export class EventsApi extends ApiClient {
     return data as EventRsvp;
   }
 
-  // Get the current user's RSVPs for a batch of events in one query.
+  // Get RSVPs for a batch of events in one query, across every identity
+  // (self + linked children, V1.7 Piece A) the current user can RSVP as.
   //
   // Schedule pages used to call getUserRsvp() once per event via
   // Promise.all — each call independently hit supabase.auth.getUser(),
@@ -89,29 +97,50 @@ export class EventsApi extends ApiClient {
   // load, and left the auth client in a state where an immediately-following
   // getUser() call (e.g. from createEvent) could fail. This does exactly
   // one auth.getUser() call and one query for the whole page instead of N+N.
-  async getUserRsvps(eventIds: string[]): Promise<Record<string, EventRsvp>> {
+  //
+  // Return shape changed for Piece A: a caregiver can hold more than one
+  // RSVP per event (one per child, plus their own), so this can no longer
+  // be a flat event_id -> EventRsvp map. Now event_id -> subject_user_id ->
+  // EventRsvp. A single-identity call site reads `map[eventId]?.[userId]`.
+  //
+  // `additionalSubjectUserIds` is the caller's linked-children id set (from
+  // resolveRsvpIdentities upstream) — self is always included automatically.
+  async getUserRsvps(
+    eventIds: string[],
+    additionalSubjectUserIds: string[] = []
+  ): Promise<Record<string, Record<string, EventRsvp>>> {
     if (eventIds.length === 0) return {};
     const { data: { user } } = await this.supabase.auth.getUser();
     if (!user) return {};
+
+    const subjectUserIds = Array.from(new Set([user.id, ...additionalSubjectUserIds]));
 
     const { data, error } = await this.supabase
       .from('event_rsvps')
       .select('*')
       .in('event_id', eventIds)
-      .eq('user_id', user.id);
+      .in('subject_user_id', subjectUserIds);
 
     if (error) throw new ApiError(error.message);
 
-    const map: Record<string, EventRsvp> = {};
+    const map: Record<string, Record<string, EventRsvp>> = {};
     (data || []).forEach((rsvp: EventRsvp) => {
-      map[rsvp.event_id] = rsvp;
+      if (!map[rsvp.event_id]) map[rsvp.event_id] = {};
+      map[rsvp.event_id][rsvp.subject_user_id] = rsvp;
     });
     return map;
   }
 
-  // Set user's RSVP for an event.
+  // Set an RSVP for an event, on behalf of a given identity (self by
+  // default, or a linked child's user id — V1.7 Piece A, Requirement A4).
+  // The submitter (`user_id`) is always whoever is actually logged in;
+  // `subject_user_id` is who the RSVP is about. Security note: this method
+  // itself does not verify `subjectUserId` is a real linked child — that's
+  // enforced server-side by migration 077's RLS WITH CHECK (Requirement
+  // A7), so a malicious/buggy client can't write an arbitrary child's RSVP.
   //
-  // Single upsert on the (event_id, user_id) unique constraint (migration 023)
+  // Single upsert on the (event_id, subject_user_id) unique constraint
+  // (migration 077, previously (event_id, user_id) from migration 023)
   // instead of a SELECT-to-check-existence followed by an INSERT-or-UPDATE —
   // that used to be two sequential network round trips for every tap of
   // Going/Maybe/Can't Go, which is most of why RSVP felt slow to respond.
@@ -122,7 +151,8 @@ export class EventsApi extends ApiClient {
   async setRsvp(
     eventId: string,
     status: 'going' | 'not_going' | 'maybe' | 'no_response',
-    declineReason?: 'late' | 'sick' | 'injured' | 'holiday' | 'other'
+    declineReason?: 'late' | 'sick' | 'injured' | 'holiday' | 'other',
+    subjectUserId?: string
   ): Promise<EventRsvp> {
     const { data: { user } } = await this.supabase.auth.getUser();
     if (!user) throw new ApiError('User not authenticated');
@@ -134,11 +164,12 @@ export class EventsApi extends ApiClient {
         {
           event_id: eventId,
           user_id: user.id,
+          subject_user_id: subjectUserId || user.id,
           status,
           decline_reason: status === 'not_going' ? (declineReason || null) : null,
           responded_at: status !== 'no_response' ? now : null,
         },
-        { onConflict: 'event_id,user_id' }
+        { onConflict: 'event_id,subject_user_id' }
       )
       .select()
       .single();
@@ -235,15 +266,19 @@ export class EventsApi extends ApiClient {
         .in('team_id', event.target_teams),
       this.supabase
         .from('event_rsvps')
-        .select('user_id, status, decline_reason')
+        .select('subject_user_id, status, decline_reason')
         .eq('event_id', event.id),
     ]);
 
     if (membersError || !members) return empty;
     if (rsvpsError) return empty;
 
+    // Keyed by subject_user_id (V1.7 Piece A), not user_id — a
+    // caregiver-submitted RSVP for a child is attributed to the CHILD
+    // (who's the actual roster member here), not whichever caregiver
+    // happened to tap the button.
     const rsvpByUser = new Map<string, { status: string; decline_reason: string | null }>();
-    (rsvps || []).forEach((r: any) => rsvpByUser.set(r.user_id, r));
+    (rsvps || []).forEach((r: any) => rsvpByUser.set(r.subject_user_id, r));
 
     const result: EventAttendeeDetails = { going: [], maybe: [], not_going: [], no_response: [] };
 

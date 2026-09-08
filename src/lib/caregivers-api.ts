@@ -73,6 +73,42 @@ class CaregiversApi extends ApiClient {
     return data || [];
   }
 
+  /**
+   * Linked children for a caregiver, each with the team ids they're an
+   * active `team_members` row on. Built for RSVP identity resolution (V1.7
+   * Piece A, `rsvp-identities.ts`) — a caregiver only gets a per-child RSVP
+   * identity on an event scoped to a team their child actually plays on.
+   * Best-effort like `teams-api.ts`'s `getMyTeams`: a lookup failure here
+   * should cost the caller the multi-child identities, not the whole page.
+   */
+  async getCaregiverChildrenWithTeamIds(
+    caregiverId: string
+  ): Promise<{ id: string; name: string; teamIds: string[] }[]> {
+    const links = await this.getCaregiverPlayers(caregiverId);
+    if (links.length === 0) return [];
+
+    const childIds = links.map((l) => l.player_id);
+    const { data, error } = await this.supabase
+      .from('team_members')
+      .select('user_id, team_id')
+      .in('user_id', childIds);
+
+    if (error) throw new ApiError(error.message);
+
+    const teamIdsByChild = new Map<string, string[]>();
+    (data || []).forEach((row: { user_id: string; team_id: string }) => {
+      const existing = teamIdsByChild.get(row.user_id) || [];
+      existing.push(row.team_id);
+      teamIdsByChild.set(row.user_id, existing);
+    });
+
+    return links.map((l) => ({
+      id: l.player_id,
+      name: `${l.player.first_name} ${l.player.last_name}`.trim(),
+      teamIds: teamIdsByChild.get(l.player_id) || [],
+    }));
+  }
+
   /** Link a caregiver to a player */
   async linkCaregiverToPlayer(caregiverId: string, playerId: string): Promise<PlayerCaregiver> {
     const { data, error } = await this.supabase
