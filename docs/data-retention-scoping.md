@@ -15,6 +15,99 @@
 
 ---
 
+## DECISIONS LOCKED — 2026-09-08 (Cowork session)
+
+**Status upgrade: every open question below that gates the build is now
+resolved.** This is step 3 of the "privacy + retention final combined
+workstream" (`NEXT-SESSION-NOTES.md`) — the policy is still SCOPING (not
+built), but no longer undecided. The sections below this one are kept
+as-is for the reasoning trail; this section is what the privacy policy
+rewrite (step 1) and the V1.R Part 2 spec/build (step 4) should actually
+build from.
+
+1. **User deletion mechanism.** Not a literal `DELETE FROM users`. When
+   the 12-month no-role clock expires (after admin review — see #7), PII
+   is scrubbed in place: name/email/phone/DOB nulled, the row marked
+   deleted/inactive, `id` kept. Found live while scoping this: `messages
+   .sender_id`, `game_feedback.created_by`/`player_id`, substitution
+   `player_on_id`/`player_off_id`, and other columns reference `users(id)`
+   with no `ON DELETE CASCADE`/`SET NULL` — a genuine row delete would hit
+   an FK violation today, and fixing every one of those FKs to allow it
+   risks cascading away other people's message/feedback history just
+   because one participant aged out. Scrub-in-place needs no FK migration
+   at all.
+2. **Individual performance/feedback data (Q2).** `game_feedback` and
+   `gant_player_summaries` stay personal data — retained as long as the
+   player is still listed with the club, then scrubbed with the person
+   per #1 like everything else. **Drop the privacy policy's current
+   "kept indefinitely, anonymised" claim for this individual-level data**
+   — it isn't true today (both tables carry a live FK to the player) and
+   no aggregate table backs it. Separately, **once a year**, a scrape job
+   is to copy anonymised, *tagged* content — age band + team + theme
+   (e.g. "positive/strength" vs. "work-on/improvement"), not raw text, no
+   name — into a new aggregate table with no FK back to a person, for
+   admin/AI trend analysis (strong vs. weak year groups, what's working
+   club-wide). **This table's design and the annual job are deferred to
+   V2** — not part of the Part 2 retention build. This is the real shape
+   of the policy draft's existing "Anonymised summary data" section; that
+   section can stay directionally but should say "planned," not imply it
+   already exists.
+3. **Club retention clock (Q1) + close-delay (Q1b).** Rolling **12
+   months** from when a Club competition's last event closes it — same
+   shape as League's grace year, so the policy states one rule ("12
+   months after you stop holding a role") instead of two clocks to
+   reconcile. The competition itself closes (stops taking new admin
+   actions like messaging/wrap-up) **4 weeks after its last event**. No
+   auto-close exists today — this is new behaviour to build.
+4. **Caregiver link handling (Q4).** The schema's `player_caregivers ...
+   ON DELETE CASCADE` never fires under decision #1 (nothing is ever
+   literally deleted from `users`), so a new explicit rule replaces it:
+   when a child's role goes inactive/scrubbed, their caregiver link is
+   cleared/marked inactive in the same pass. The caregiver's **own**
+   12-month clock runs independently — being caregiver of a now-inactive
+   child does not keep the caregiver's account alive; they're judged
+   solely on whether they hold any other active role.
+5. **Admins.** Confirmed out of scope, as originally scoped — no team or
+   competition association, so nothing in this build applies to them.
+6. **Definition of "no role" (Q6).** Kept simple and mechanical: zero
+   active team-linked roles for 12 months, no activity/login signal
+   folded into the job's own logic — the admin review step (#7) is the
+   human safety net for edge cases instead.
+7. **Notice before deletion (Q7) + export (Q11).** Not an automated email
+   to the person. Once a month, admins get a review list of everyone
+   about to age out (name, last role held, when) and can tag/exempt
+   anyone they don't want scrubbed; after a **1-month grace window**,
+   whoever's left on the list gets scrubbed per #1. No direct contact to
+   the flagged person — the existing "Your rights" access-on-request
+   process (already in the privacy draft) covers anyone who wants a copy
+   of their data at any time, independent of this flow.
+8. **Lite users with no team (Q8).** No special case — same admin-review
+   flow as anyone else with zero active team-linked roles. Matches the
+   `user_type` retirement already noted below (the tier isn't real
+   today).
+9. **Orphaned pending children (Q9).** Shorter window than the standard
+   grace year: **90 days** from an unapproved add-a-junior invite, then
+   treated the same as any other no-role case.
+10. **Backups (Q10).** Still needs the project's actual Supabase
+    plan/PITR setting confirmed before the policy states a specific
+    number. Supabase's own published retention: 7 days of daily backups
+    on Pro, 14 on Team, 30 on Enterprise (Free has none; PITR is a paid
+    add-on with 7/14/28-day options and replaces daily backups when
+    enabled). Whichever applies here, the policy should say "deleted data
+    may persist in backups for up to N days," not imply instant erasure
+    everywhere.
+11. **Export on request.** Covered by #7 above — no separate build. Note
+    that the "Your rights" contact address (`privacy@clubfootball.app`)
+    needs an actual person monitoring it; that's an operational task for
+    Mike, not a build item.
+
+**Two small loose ends, not blocking:** (a) confirm which Supabase
+plan/PITR setting this project is actually on, for exact backup wording
+in #10; (b) confirm who's actually monitoring `privacy@clubfootball.app`
+for #11.
+
+---
+
 ## The two competition types
 
 - **League Competitions** run ~20 weeks across terms 2 and 3. Each year, team

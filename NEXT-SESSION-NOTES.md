@@ -1617,6 +1617,27 @@ set is frozen, and the retention *build* can't start until the retention
 rewriting the policy repeatedly as features land. Hard gate before any store
 submission.
 
+**Step 3 (DEFINE the retention/deletion policy) — DONE, 2026-09-08.** Every
+open decision in `docs/data-retention-scoping.md` is now locked (see that
+file's new "DECISIONS LOCKED" section at the top). Highlights: user deletion
+is **scrub-in-place, not a literal row delete** (found live that several
+columns reference `users(id)` with no cascade — `messages.sender_id`,
+`game_feedback.created_by`/`player_id`, substitution `player_on_id`/
+`player_off_id` — so a genuine `DELETE` would hit an FK violation today);
+Club's retention clock is **rolling 12 months with a 4-week close-delay**;
+notice-before-deletion is a **monthly admin-reviewed list**, not an
+automated email to the person; individual performance/feedback data (`game_
+feedback`, `gant_player_summaries`) stays personal and follows the same
+12-month rule — the policy's "kept indefinitely, anonymised" claim moves to
+a **deferred-to-V2** annual-scrape aggregate table tagged by age/team/theme,
+not built now; the caregiver-link and orphaned-pending-children (90-day)
+edge cases are both settled too. Two small non-blocking loose ends: confirm
+the actual Supabase plan/PITR setting for exact backup-retention wording,
+and confirm who monitors `privacy@clubfootball.app`. **Next up: step 1
+(rewrite the privacy policy against everything actually built) and step 4
+(build V1.R Part 2 as its own spec) can now both proceed from a locked
+policy instead of open scoping notes.**
+
 **Gant V1 build status as of 2026-09-04 (context for the above):** Tasks 1–9 of
 the `gant-ai-feedback-assistant` spec are built (1–7 live-verified; 8 & 9 built
 and locally verified, held uncommitted per the repo owner's batch-commit
