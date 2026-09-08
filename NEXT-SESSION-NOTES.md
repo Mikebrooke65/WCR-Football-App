@@ -91,8 +91,35 @@ RSVPs for visible events" nests the events policy, so the child's RSVP row
 becomes visible automatically. `team_members` needed no change either
 (already readable by any authenticated user).
 
+**Second RLS bug, found + fixed the same evening (migration `080`, still
+to run).** With 079 in place, George Pig answered "Can't Go" himself and
+then Daddy Pig tried to change it to "Going" — live error: `new row
+violates row-level security policy (USING expression) for table
+"event_rsvps"`. Migration 077's policy had `USING (user_id = auth.uid())`,
+which only matches rows you SUBMITTED. Since `setRsvp` upserts on
+`(event_id, subject_user_id)`, changing an answer updates whoever's row
+already exists — so the RSVP was effectively owned by whoever answered
+first: a child answering first locked the caregiver out, and (the mirror
+case, equally broken but not hit) a caregiver answering first locked the
+CHILD out of their own RSVP. Migration `080` widens `USING` to also match
+rows about you or about a linked child; `WITH CHECK` is unchanged, so what
+can be WRITTEN is not widened at all. Verified on local Postgres 16:
+before, both updates fail; after, both succeed, while an unrelated user
+still sees nothing, cannot update, and cannot forge a row about someone
+else's child.
+
+**Also fixed in the client (`8a58b8c`):** Piece A's single-identity fast
+path assumed "one identity means me" and passed no subject to `setRsvp`,
+so a pure caregiver with one child recorded the RSVP against THEMSELVES —
+appearing as attending a team they aren't on, while the child still owed a
+response. Now passes the sole identity explicitly. The same wrong
+assumption was in the button highlighting. That commit also adds the label
+this screen needed: a caregiver now sees "RSVP for George Pig" above the
+buttons (and "RSVP for 3 people — tap to choose" when there are several),
+so it is never ambiguous whose answer is being set.
+
 **Still to verify (small, needs a person not a session):**
-0. **RUN MIGRATION `079` FIRST** — until it is run, a caregiver who is not
+0. **RUN MIGRATIONS `079` AND `080`** — until it is run, a caregiver who is not
    also a coach/manager sees no events at all, so items 1 and 2 below
    cannot be tested properly. After running it, re-check as **Daddy Pig**:
    he should now see the Riverhead Frogs events, and tapping Going should
