@@ -2,6 +2,46 @@
 
 All notable changes to the football coaching app prototype will be documented in this file.
 
+## [2026-09-08] - Caregivers can now see their children's team events
+
+### Fixed
+- **A parent who isn't also a coach could not see any of their child's team
+  events.** Logging in as a caregiver showed "No upcoming events" while the
+  child, on the same team looking at the same event, saw it fine. Since
+  V1.7 Piece A exists precisely so a parent can RSVP on behalf of each of
+  their children, this meant that feature's main use case did not work at
+  all in the live app.
+
+### Technical Notes
+- **Migration `079` (run manually).** Migration 023's `events` SELECT policy
+  resolves team targeting with `team_members.user_id = auth.uid()` — it
+  requires the *requesting* user to hold their own `team_members` row. A
+  caregiver never has one; only their linked child does. So every
+  team-targeted event was invisible to a pure caregiver, and Piece A's
+  identity resolution (which explicitly supports "pure caregiver, no
+  membership, one identity per child", and unit-tests that case) could
+  never run — the event was filtered out before any of it executed.
+- **Same bug as migration 060**, which fixed this exact membership-only
+  shape for the `teams` table in August ("You are not a member of any team
+  yet" for a caregiver whose child was on the roster). `events` never got
+  the matching treatment. It stayed hidden because every caregiver tested
+  until now also held a coach/manager row on the team, which satisfied the
+  existing clause and masked the gap.
+- The fix is **additive**: a second permissive SELECT policy rather than a
+  rewrite of the existing multi-branch one, since Postgres ORs permissive
+  policies and rewriting risks silently dropping a branch — and this
+  database's policies have drifted from the committed migrations before
+  (see 060's and 057's own notes). Plain `EXISTS`, no `SECURITY DEFINER`,
+  matching the shape 060 has run in production since August.
+- **No other policy needed changing**, verified rather than assumed:
+  023's "Users can view RSVPs for visible events" nests the events policy,
+  so a caregiver gains their child's RSVP rows automatically; and
+  `team_members` is already readable by any authenticated user.
+- Verified on a local Postgres 16 instance reproducing both policies and
+  the real data shape: before, the caregiver saw 0 events and 0 RSVPs;
+  after, 1 and 1; the child's own view unchanged; an unrelated user still
+  sees nothing.
+
 ## [2026-09-08] - Schedule fixes found while live-testing V1.7
 
 ### Fixed

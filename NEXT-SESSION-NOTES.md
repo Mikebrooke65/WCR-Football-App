@@ -59,12 +59,45 @@ owed to production for V1.7.**
 - **Requirement B4 (don't double-notify) confirmed:** an immediate second
   run returned `{"sent":0,"owed":5,"recipients":5,"alreadyNotified":5}`.
 
-**Piece A — half verified.** Requirement A2 (single identity ⇒ unchanged)
-confirmed live: Hewie Duck (player, no linked children) sees the plain
-three buttons, exactly as before. **The multi-identity modal (A3/A4) has
-NOT been opened yet** — see "Still to verify" below.
+**Piece A — half verified, and ONE REAL BUG FOUND + FIXED (migration 079,
+still to run).** Requirement A2 (single identity ⇒ unchanged) confirmed
+live: Hewie Duck and George Pig (players, no linked children) both see the
+plain three buttons, unchanged. **The multi-identity modal (A3/A4) has NOT
+been opened yet.**
+
+**The bug — Piece A's main use case did not work at all.** Testing as
+Daddy Pig (caregiver of George Pig, who plays for Riverhead Frogs) showed
+"No upcoming events", while George — same club, same event — saw them
+fine. Cause: migration 023's `events` SELECT policy resolves team
+targeting with `team_members.user_id = auth.uid()`, i.e. it requires the
+REQUESTING user to hold their own `team_members` row. A caregiver never
+has one; only their child does. So every team event was invisible to a
+pure caregiver, and Piece A's identity logic — which explicitly supports
+"pure caregiver, no membership, one identity per child" and has a unit
+test for exactly that — could never run, because the event was hidden
+first. **This is the same bug migration 060 fixed for the `teams` table in
+August; `events` never got the matching treatment.** It stayed hidden
+because every caregiver tested before now ALSO held a coach/manager row on
+the team, which satisfied the existing clause and masked it.
+
+**Migration `079` fixes it** with an additive second SELECT policy on
+`events` (mirroring 060's shape — the existing multi-branch policy is left
+untouched, since Postgres ORs permissive policies and rewriting it risks
+silently dropping a branch). Verified on a local Postgres 16 instance
+reproducing both policies: before, caregiver sees 0 events / 0 RSVPs;
+after, 1 and 1; the child's view is unchanged and an unrelated user still
+sees nothing. **`event_rsvps` needed no change** — 023's "Users can view
+RSVPs for visible events" nests the events policy, so the child's RSVP row
+becomes visible automatically. `team_members` needed no change either
+(already readable by any authenticated user).
 
 **Still to verify (small, needs a person not a session):**
+0. **RUN MIGRATION `079` FIRST** — until it is run, a caregiver who is not
+   also a coach/manager sees no events at all, so items 1 and 2 below
+   cannot be tested properly. After running it, re-check as **Daddy Pig**:
+   he should now see the Riverhead Frogs events, and tapping Going should
+   give him a modal with George Pig on it (he has no membership of his
+   own, so George should be his ONLY identity — no "self" row).
 1. **Piece A multi-child modal.** Log in as **Mortimer Mouse** (manager +
    caregiver on Riverhead Frogs `befd2bbb-449f-44fb-8ede-bded0ea2ca70`,
    which has George Pig and Amy Brooke as child players). Tapping Going on
