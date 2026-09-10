@@ -144,14 +144,18 @@ nothing was ever actually set up for them.
 > rather than deleting the account row, which several other tables' data
 > depends on to stay intact).
 >
-> ⚠️ REVIEW (MUST FIX before publishing — build not finished yet): the
+> ✅ **BUILT AND LIVE, 2026-09-10** (was: "build not finished yet"). The
 > automated monthly job, the admin review list, and the automatic removal
-> after the grace window are **specified but not yet built** —
+> after the grace window are built and deployed —
 > `.kiro/specs/data-retention-privacy/requirements.md` is the spec (Pieces
-> A/B/C). **Do not publish this section until that spec is built and
-> live-verified** — publishing this wording before the mechanism exists would
-> repeat the exact problem this note originally flagged. Track this to done
-> before go-live, not just written down.
+> A/B/C, all done — see `tasks.md` in the same folder for the full
+> completion notes). Sanity-checked against real production data. ⏳ One
+> thing still outstanding before this is fully live-verified end to end: no
+> real monthly cycle has actually run yet (it's scheduled for the 1st of
+> the month), so the automatic removal step itself hasn't been observed
+> firing on a real record. Safe to publish this section on the strength of
+> the build and the sanity checks; worth a quick re-check after the first
+> real monthly run.
 
 ## Your rights
 
@@ -421,24 +425,31 @@ contact us at [privacy@clubfootball.app].
 Raised 2026-08-17 during review of the first draft; updated 2026-09-08 after
 reconciling this policy against everything actually built (Progress Notes,
 Gant, RSVP, the streamlined child-access model) and locking the retention
-decisions.
+decisions; updated again 2026-09-10 now that the retention/deletion build
+(item 1 below) has shipped and been sanity-checked live.
 
 **Must fix before publishing:**
 
-1. **Retention/deletion — decisions locked, design reviewed, build not
-   started.** ✅ The *rules* are settled (`docs/data-retention-scoping.md`'s
-   "DECISIONS LOCKED" section: in-place removal of personal fields, not
-   account deletion; 12 months after no role; monthly admin review with a
-   30-day grace window; 90 days for an unconfirmed child invite, measured
-   from migration 058's auto-deny). ✅ The *design* is also finished and
-   reviewed — `.kiro/specs/data-retention-privacy/design.md` (requirements
-   at `requirements.md` in the same folder), including a security review
-   pass on 2026-09-10. ⏳ **STILL TO BUILD**: the migration, the
-   `retention-scan` scheduled job, the review queue, and the Desktop "Data
-   Retention & Privacy Assurance" report — none of this is coded yet.
-   **Do not publish the "How long we keep your information" section as-is
-   until this is built and live-verified** — see the REVIEW note on that
-   section.
+1. ~~**Retention/deletion — decisions locked, design reviewed, build not
+   started.**~~ ✅ **BUILT AND LIVE, 2026-09-10.** The *rules* are settled
+   (`docs/data-retention-scoping.md`'s "DECISIONS LOCKED" section: in-place
+   removal of personal fields, not account deletion; 12 months after no
+   role; monthly admin review with a 30-day grace window; 90 days for an
+   unconfirmed child invite, measured from migration 058's auto-deny). The
+   *design* is finished and reviewed — `.kiro/specs/data-retention-privacy/
+   design.md` (requirements at `requirements.md` in the same folder),
+   including a security review pass on 2026-09-10. The *build* is done and
+   deployed: migration 081 is applied, the `retention-scan` scheduled job
+   is deployed and running on a monthly `pg_cron` schedule, the admin
+   review queue exists, and the Desktop "Data Retention & Privacy
+   Assurance" report is live. Sanity-checked against real production data —
+   `user_holds_active_role()` verified correct for a current team member, a
+   pure caregiver of an active child, and a genuinely roleless user. ⏳
+   **Not yet end-to-end live-verified**: no real monthly cycle has run yet
+   (next scheduled fire is the 1st of the month), and the Desktop report
+   hasn't been clicked through live by an admin. Fine to publish the "How
+   long we keep your information" section on this basis, but worth a final
+   look after the first real monthly run confirms it behaves as designed.
 2. ~~**Privacy contact mailbox may not receive mail.**~~ ✅ **RESOLVED
    2026-09-10.** `privacy@clubfootball.app` is live via Cloudflare Email
    Routing, forwarding to a real inbox Mike monitors — confirmed active in
