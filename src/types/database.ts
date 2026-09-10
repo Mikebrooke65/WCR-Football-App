@@ -43,6 +43,19 @@ export interface User {
    * never backfilled (Requirement 2.3/2.4).
    */
   date_of_birth?: string | null;
+  /**
+   * Set once this row's PII has been scrubbed by the retention job.
+   * `.kiro/specs/data-retention-privacy/` Piece A (migration 081). `null` =
+   * never retired. Distinct from `active`, which has other, older meanings.
+   */
+  retired_at?: string | null;
+  /**
+   * When this user was last observed holding zero active roles (see
+   * `user_holds_active_role()`, migration 081). `null` = currently holds a
+   * role. The retention job's 12-month clock is measured from this
+   * timestamp. `.kiro/specs/data-retention-privacy/` Piece B.
+   */
+  role_ended_at?: string | null;
 }
 
 // Team model
@@ -254,6 +267,12 @@ export interface PlayerCaregiver {
   player_id: string;
   caregiver_id: string;
   created_at: string;
+  /**
+   * Set when the linked player is scrubbed by the retention job, in the
+   * same pass as the player's own `users` row (migration 081). `null` =
+   * link still active. `.kiro/specs/data-retention-privacy/` Piece A.
+   */
+  inactive_at?: string | null;
 }
 
 /**
