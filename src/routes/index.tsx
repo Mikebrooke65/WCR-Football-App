@@ -38,6 +38,7 @@ import { SessionBuilder } from '../pages/desktop/SessionBuilder';
 import { CompetitionsPage } from '../pages/desktop/CompetitionsPage';
 import { DesktopTournamentPage } from '../pages/desktop/DesktopTournamentPage';
 import { ProgressNotesSettings } from '../pages/desktop/ProgressNotesSettings';
+import { DataRetentionReport } from '../pages/desktop/DataRetentionReport';
 import { desktopFeatures } from '../config/desktopFeatures';
 
 // Reporting pages
@@ -227,6 +228,13 @@ export const router = createBrowserRouter([
       {
         path: 'users',
         element: <UserManagement />,
+      },
+      // Data Retention & Privacy Assurance report (V1.R Part 2, Piece C) —
+      // deliberately NOT inside the desktopFeatures.reporting spread below.
+      // Ships independently of the deferred 6-page Reporting suite.
+      {
+        path: 'data-retention',
+        element: <DataRetentionReport />,
       },
 
       // Reporting hidden for the V1 launch trial (V1.8 / deferred to V2.8) —
