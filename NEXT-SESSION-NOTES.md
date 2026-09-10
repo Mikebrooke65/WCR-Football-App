@@ -1,4 +1,64 @@
 # Next Session Notes
+## Current State — 10 September 2026 (V1.R Part 2 build)
+
+**Data Retention & Privacy Assurance — the last hard gate before store
+submission — built and schema-deployed this session**, from the locked
+handoff spec (`.kiro/specs/data-retention-privacy/`). Full technical detail
+in `CHANGELOG.md`'s 2026-09-10 entry; this is the status summary.
+
+- **Piece A — scrub-in-place mechanism.** Migration `081` adds
+  `users.retired_at`/`role_ended_at`, `player_caregivers.inactive_at`, and
+  `user_holds_active_role()` — the shared eligibility check that fixes a
+  real gap in the original requirements (a pure caregiver never has a
+  `team_members` row, so a bare `team_members` check alone would call every
+  caregiver of a still-active child roleless).
+- **Piece B — scheduled job + review queue.** New `retention-scan` Edge
+  Function, monthly `pg_cron` (04:00 UTC on the 1st, same pattern as
+  migration 078's `send-rsvp-reminders`). Reviews and grace-windows
+  candidates via `admin_action_items` before ever touching anyone — nobody
+  gets scrubbed without a month's admin-visible warning first.
+- **Piece C — Desktop report.** New "Data Retention" nav item, always on
+  (not part of the deferred Reporting suite) — pending queue with an Exempt
+  button, plus recent history.
+- A design review pass (2026-09-10, before build) caught and fixed a real
+  security gap in the original draft: the scrub logic was originally going
+  to be its own separately-callable Edge Function taking an arbitrary user
+  id, which any signed-in user could have invoked on anyone's account. Fixed
+  by folding it into `retention-scan` as an internal call with no second
+  HTTP endpoint — see design.md's "Review pass" section for the other two
+  (smaller) fixes it made at the same time.
+
+**Deploys — schema DONE 2026-09-10.** Migration `081` run (cron job
+registered). `retention-scan` deployed. **Live-verified so far**: a
+read-only sanity check of `user_holds_active_role()` against three real
+cases in production data (a team member, a pure caregiver of a
+still-rostered child, a genuinely roleless user) all matched expectation —
+see CHANGELOG.md for the exact results.
+
+**Not yet done, before calling this fully live-verified (unlike V1.7's
+Piece B, which got an actual end-to-end push-notification test):**
+- No real candidate has gone through a full cycle yet — the monthly cron's
+  first real tick is naturally in the future (next 1st-of-month, 04:00
+  UTC). Nothing to do here except wait, or manually invoke the function
+  once via its dashboard/curl to sanity-check the full `retentionScan()`
+  flow (all four steps) end to end against real data, the way V1.7's Piece
+  B was manually re-run to confirm B4's don't-double-notify behaviour.
+- The Desktop report page (`/desktop/data-retention`) hasn't had a live
+  admin eyeball yet — worth a quick click-through once there's at least one
+  real pending candidate to look at (today's data, per the sanity check,
+  has real examples of role-holding people but the check didn't surface
+  whether anyone is *currently* past the 12-month/90-day thresholds — the
+  first monthly tick will tell us).
+- The two non-blocking loose ends `docs/data-retention-scoping.md` already
+  flagged (confirm the actual Supabase plan/PITR setting; confirm who
+  monitors `privacy@clubfootball.app`) are unrelated to this build and
+  still open — see that file's "DECISIONS LOCKED" section.
+
+This clears the last item in the "privacy + retention" workstream's step 4
+(see that section further down this file) — **step 1 (rewrite the privacy
+policy against everything actually built) is now the only remaining step
+before V1.9 store submission can proceed.**
+
 ## Current State — 8 September 2026 (V1.7 build)
 
 **V1.7 RSVP / Availability — Piece A and Piece B both built this session**,
@@ -1519,7 +1579,7 @@ One-line status per item. Detail is in the sections further down.
 | V1.8 Admin console correctness pass | ✅ **DONE, built + pushed 2026-09-04** | Full 10-task Kiro spec (`.kiro/specs/admin-console-v1.8/`) shipped — flat admin sidebar, Coaching hub on real counts, Users list/detail cleanup, Caregiver Reviews folded into Users, Teams manager column + pending badge + Assign Manager, Competitions split into External Leagues / Club Events with click-throughs + fixtures. Reporting hidden → V2.8. Commits `dfa15dc`, `076fbd9`, `ccb7fea` (+ `9061382` lite/full UI removal). **Left for owner:** one live admin eyeball. Two follow-ups deferred: broaden "Active Coaches" count; V2 coaching-activity dashboard |
 | V1.M Messaging — send to Admins | ✅ **Fully closed, live-verified end-to-end 2026-09-08** | Root cause was two coupled things: (1) "Club Admin" messages are team-less but `messages.team_id` was NOT NULL and the compose form only auto-fills a team when you're on exactly one — so a multi-team admin sent an empty `team_id` and the insert was rejected (the "nothing happens" repro); (2) the inbox query keyed on team membership, so a team-less admin message wouldn't appear anyway. Fix (migration `075_messages_admin_inbox.sql` + client): `team_id` nullable, INSERT policy allows a team-less message from any authenticated user (contact-the-club path), a `SECURITY DEFINER` `message_thread_root_sender()` helper drives a SELECT clause so the thread's original sender sees admin replies (no recursion — the mig-035 trap), compose sends `team_id: null` for Club Admin, and `getThreads` now includes team-less threads. Confirmed live on localhost against the migrated DB: sending to Club Admin resolved to all 6 admins and appeared in the shared inbox. ✅ **Return path verified live 2026-09-08** (Hewie Duck, coach = non-admin sender, on desktop → messaged Club Admin; Mike Brooke admin replied on mobile; Hewie opened the thread and saw the reply — the root-sender SELECT clause from migration 075 works). Minor UX note (not a data bug): the reply didn't bump/indicate on the sender's thread *list* until the thread was opened — no live/unread signal on the list view; real-time + push behaviour to be assessed on the Capacitor native build |
 | **V1.R Part 1 — Role model & RLS fix** | ✅ **Fully done, live-verified, 2026-09-02** | Make Coach, Stop being Coach, Demote (incl. first-Manager protection both directions), the role-sync trigger + its Coaching-tab follow-up fix, and the caregiver-floor invariant all confirmed live. Nothing outstanding. Surfaced one new, separate, not-yet-fixed bug: "Manage Caregivers" visibility uses the team's age band instead of the person's own — see V1.R's write-up |
-| V1.R Part 2 — Automated data retention & deletion | ⬜ Deferred, own future spec | Competition cleanup clocks, the 12-month "no role" user-deletion job, de-identified performance data, pre-deletion notice/export. Nothing blocks on it today — scoping notes live in `docs/data-retention-scoping.md`, untouched |
+| V1.R Part 2 — Automated data retention & deletion | ✅ Built + schema-deployed, 2026-09-10 | Scrub-in-place mechanism, monthly scheduled job + admin review queue, Desktop report — all built from `.kiro/specs/data-retention-privacy/`. Migration `081` run and sanity-checked live; not yet end-to-end live-verified (no real monthly cycle has run yet) — see "Current State" at the top of this file |
 | V1.9 Store + privacy policy | 🟠 Rewrite now confirmed required | Gate before store submission — the child-account model is live now, not hypothetical. Depends on V1.R's retention decisions locking first. `club_settings.app_url` still needs the real store listing at go-live |
 | V1.T Friendly Manager import | ⬜ Blocked | Waiting on a CSV export sample |
 | **Two pre-existing bugs found building Gant (2026-09-03)** | ✅ **Both fixed** | (1) `teams-api.ts`: a genuine TS type error (missing `is_coach` on the `getMyTeams` synthetic pending-child membership), invisible to `npm run build` since Vite doesn't type-check. ✅ **Fixed 2026-09-08** (`997f650`) — added the `is_coach: false` placeholder. (2) ✅ **Fixed 2026-09-03, live-confirmed by the repo owner**: `ProtectedRoute` was redirecting a coach-authority Manager/Admin away from `/coaching`/`/ai-coach` the moment they tapped the tab, despite correctly seeing it in nav — it now mirrors `tabsForRole`'s exact `hasCoachAuthorityOnAnyTeam` check (via `user.teamMemberships`), gated only when COACH is an allowed role so no other route is affected |
@@ -1637,6 +1697,13 @@ and confirm who monitors `privacy@clubfootball.app`. **Next up: step 1
 (rewrite the privacy policy against everything actually built) and step 4
 (build V1.R Part 2 as its own spec) can now both proceed from a locked
 policy instead of open scoping notes.**
+
+**Step 4 (BUILD the retention/deletion management) — DONE, 2026-09-10.**
+`.kiro/specs/data-retention-privacy/` built and schema-deployed — see
+"Current State" at the top of this file and `CHANGELOG.md`'s 2026-09-10
+entry for full detail. **Step 1 (rewrite the privacy policy against
+everything actually built) is now the only remaining step in this
+workstream before V1.9 store submission can proceed.**
 
 **Gant V1 build status as of 2026-09-04 (context for the above):** Tasks 1–9 of
 the `gant-ai-feedback-assistant` spec are built (1–7 live-verified; 8 & 9 built

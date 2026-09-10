@@ -28,7 +28,7 @@ between sessions.
 
 ## Piece A — Scrub-in-place mechanism
 
-- [ ] A1. **Migration `081_data_retention_scrub_mechanism.sql`** — everything
+- [x] A1. **DONE 2026-09-10, live.** **Migration `081_data_retention_scrub_mechanism.sql`** — everything
   Piece A and B need in one file (per design.md, A.1/B.1 are "same
   migration"):
   - `ALTER TABLE public.users ADD COLUMN retired_at timestamptz, ADD COLUMN
@@ -47,11 +47,11 @@ between sessions.
   - `CREATE INDEX IF NOT EXISTS admin_action_items_kind_status_idx ON
     public.admin_action_items(kind, status)` (design B.1).
   - Confirm the migration number against current HEAD first (see header).
-- [ ] A2. **Types** (`src/types/database.ts`): add `retired_at: string |
+- [x] A2. **DONE 2026-09-10.** **Types** (`src/types/database.ts`): add `retired_at: string |
   null` and `role_ended_at: string | null` to the `users`/`User` type; add
   `inactive_at: string | null` to whatever type models `player_caregivers`
   rows (add one if none currently exists — check first).
-- [ ] A3. **`scrubUser()`** — an internal, non-exported-from-router, plain
+- [x] A3. **DONE 2026-09-10, deployed.** **`scrubUser()`** — an internal, non-exported-from-router, plain
   function living inside `supabase/functions/retention-scan/index.ts`
   (design A.2, **as revised by the review pass**: this is deliberately
   *not* a second `Deno.serve` endpoint and *not* a separately deployed
@@ -82,7 +82,7 @@ between sessions.
      breakage Piece A exists to avoid). Add a one-line code comment saying
      the same, so a future edit doesn't reintroduce it.
   5. Return `{scrubbed: true}`.
-- [ ] A4. Note in a code comment above `scrubUser()`, and in the migration
+- [x] A4. **DONE 2026-09-10.** Note in a code comment above `scrubUser()`, and in the migration
   file's header comment, that A6 (the child-must-have-a-caregiver
   invariant) is satisfied by construction here — scrubbing a child marks
   *their own* row inactive, it never removes a caregiver from an
@@ -91,7 +91,7 @@ between sessions.
 
 ## Piece B — Scheduled retention job + review queue
 
-- [ ] B1. **`retentionScan()`** — the exported `Deno.serve` handler in the
+- [x] B1. **DONE 2026-09-10, deployed.** **`retentionScan()`** — the exported `Deno.serve` handler in the
   same `supabase/functions/retention-scan/index.ts` file, implementing all
   four steps from design B.2 pseudocode **exactly**, including both
   review-pass fixes already folded in below (don't re-derive from
@@ -136,11 +136,11 @@ between sessions.
   (B7) — every step above is already naturally idempotent by its own
   `WHERE` clauses; don't add extra state to track "did this run
   fully" on top of that.
-- [ ] B2. Document the `admin_action_items.detail` jsonb shape (design
+- [x] B2. **DONE 2026-09-10.** Document the `admin_action_items.detail` jsonb shape (design
   B.1) in a code comment next to where rows are inserted: `{clock:
   "standard" | "orphaned_child", role_ended_at, scheduled_scrub_at,
   outcome?: "exempted" | "auto_scrubbed" | "no_longer_eligible"}`.
-- [ ] B3. **Scheduling** — add to the same `081` migration file (or a
+- [x] B3. **DONE 2026-09-10, live — cron job registered (verified via `SELECT * FROM cron.job`).** **Scheduling** — add to the same `081` migration file (or a
   follow-on `081b` if that reads more cleanly once A1 is drafted; match
   whichever convention the file ends up needing): `CREATE EXTENSION IF NOT
   EXISTS pg_cron` (`pg_net` should already exist from migration 078), a
@@ -153,14 +153,14 @@ between sessions.
   renamed, with the RSVP-specific reasoning in its comments swapped for
   this job's. No new manual Vault step needed if migration 042/078 has
   already been applied (confirm, don't assume).
-- [ ] B4. **Verify the function's TypeScript**: copy
+- [x] B4. **DONE 2026-09-10 — `deno check --allow-import index.ts` clean**, run twice (once pre-delivery in a sandbox, once against the real fresh-clone patch before sending). **Verify the function's TypeScript**: copy
   `supabase/functions/retention-scan/` to an isolated directory outside
   `node_modules` and run `deno check --allow-import index.ts`, per
   CLAUDE.md's Edge Function verification step.
 
 ## Piece C — Desktop "Data Retention & Privacy Assurance" report
 
-- [ ] C1. **Route + nav, independent of `desktopFeatures.reporting`**: add
+- [x] C1. **DONE 2026-09-10, live.** **Route + nav, independent of `desktopFeatures.reporting`**: add
   `{ path: 'data-retention', element: <DataRetentionReport /> }` to
   `routes/index.tsx`'s `/desktop` children array as a **plain, unconditional
   entry** — do not put it inside the `...(desktopFeatures.reporting ? [...]
@@ -170,7 +170,7 @@ between sessions.
   unlike the Reporting entry it sits near). Reuses the existing `/desktop`
   route's `ProtectedRoute allowedRoles={[UserRole.ADMIN]} requireDesktop`
   guard — no new guard code (C2).
-- [ ] C2. **`src/lib/retention-api.ts`** — new client module, following
+- [x] C2. **DONE 2026-09-10.** **`src/lib/retention-api.ts`** (`exemptCandidate`/`unexemptCandidate` take the full row rather than `id`/`adminId` alone, so the existing `detail` fields survive the jsonb merge, done client-side) — new client module, following
   `caregivers-api.ts`'s existing `admin_action_items` query conventions
   (see `getPendingAdminActionItems`/`dismissAdminActionItem` for the
   pattern to match — same error handling via `ApiError`, same `supabase`
@@ -187,7 +187,7 @@ between sessions.
   - `listRecentlyActioned(limit = 20)`: `admin_action_items` where
     `kind='retention_candidate' AND status='actioned'`, ordered by
     `actioned_at` descending, limited.
-- [ ] C3. **`src/pages/desktop/DataRetentionReport.tsx`** — new page,
+- [x] C3. **DONE 2026-09-10.** **`src/pages/desktop/DataRetentionReport.tsx`** — new page,
   following `AdminActionItems.tsx`'s existing shape (loading/error state
   handling, a name-resolution pass against `users` after the initial
   fetch, empty-state copy, Tailwind classes matching the rest of
@@ -202,7 +202,7 @@ between sessions.
      2026", reading `listRecentlyActioned` and branching display on
      `detail->>'outcome'` (`auto_scrubbed` / `exempted` /
      `no_longer_eligible` each get distinct copy/badge colour).
-- [ ] C4. **Un-exempt / undo** (C5): within the same page session, let an
+- [x] C4. **DONE 2026-09-10** — built as described, with one refinement: Undo is offered on any row this page session itself exempted (tracked client-side), not scoped to "the most recent" one, so exempting several candidates in a row doesn't lose the Undo option on the earlier ones. **Un-exempt / undo** (C5): within the same page session, let an
   admin reverse an exemption they just made — simplest UX matching C5's
   "exact UX is a design call": an inline "Undo" affordance that appears
   next to a just-exempted row for the rest of that session (client-side
@@ -210,30 +210,42 @@ between sessions.
   `pending` and clearing `actioned_by`/`actioned_at`/the `outcome` key if
   they click it) rather than a separate re-toggle control that looks the
   same as the original "Exempt" button.
-- [ ] C5. Confirm no manual "run cleanup now" trigger exists anywhere on
+- [x] C5. **DONE 2026-09-10.** Confirm no manual "run cleanup now" trigger exists anywhere on
   this page (C's explicit out-of-scope item) — the only thing that invokes
   a scrub is B3's monthly cron.
 
 ## Verification checkpoint
 
-- [ ] Full `npm run build` + `npx vitest --run` clean against the sandbox,
-  confirming the pass count only grows (no drop below whatever the
-  fresh-clone baseline turns out to be at build time — re-check it, don't
-  assume 254|2 is still current).
-- [ ] `deno check --allow-import index.ts` clean for `retention-scan`
-  (B4).
-- [ ] Manual read-only sanity check of `user_holds_active_role()` against
-  at least one known active player, one known caregiver-of-an-active-child
-  (should return true even with zero `team_members` rows — this is the
-  exact gap A3 fixes), and one genuinely roleless user (should return
-  false) before trusting the monthly scan's output.
-- [ ] Update `CHANGELOG.md` and `NEXT-SESSION-NOTES.md` once built and
-  deployed, including deploy steps still outstanding at hand-off time
-  (matches this project's existing tasks.md convention of writing
-  completion notes inline, not just flipping checkboxes).
-- [ ] Commit `design.md` and this `tasks.md` to git alongside the code (not
-  left untracked) — CLAUDE.md flags this as a known inconsistency worth
-  avoiding for every new spec going forward.
+- [x] **DONE.** Full `npm run build` + `npx vitest --run` clean against the
+  sandbox for every patch — confirmed on a genuinely fresh clone of the real
+  current HEAD each time (not just the sandbox), per CLAUDE.md's
+  verification protocol. Baseline held at **300 passed | 2 skipped**
+  throughout (this project's baseline had already moved to 300|2 by V1.7's
+  own checkpoint, ahead of the 254|2 figure this file's header cited from
+  2026-09-04 — confirmed current, not assumed, before relying on it).
+- [x] **DONE.** `deno check --allow-import index.ts` clean for
+  `retention-scan` (B4) — confirmed twice, including against the real
+  fresh-clone copy of the patch before delivery.
+- [x] **DONE 2026-09-10, live**, after migration 081 was run. All three
+  cases matched expectation against real production data:
+  `user_holds_active_role()` on a `team_members` row holder → `true`; on a
+  pure caregiver of a still-rostered child with **no** `team_members` row of
+  their own → `true` (the exact gap A3 exists to fix); on a genuinely
+  roleless non-admin user → `false`.
+- [x] **DONE 2026-09-10** — see `CHANGELOG.md`'s 2026-09-10 entry and
+  `NEXT-SESSION-NOTES.md`'s "Current State — 10 September 2026" section
+  (plus its status-table row and workstream note further down that file).
+- [x] **DONE** — `design.md` and this `tasks.md` were both committed and
+  pushed to git before any code patch (delivered and applied first, per the
+  repo owner's explicit request to review the task breakdown before code).
+
+**Not yet done, flagged rather than silently assumed** (see
+`NEXT-SESSION-NOTES.md`'s "Current State" section for the full note): no
+real candidate has been through an actual full monthly cycle yet — the
+cron's first real tick is naturally in the future (next 1st-of-month, 04:00
+UTC) — and the Desktop report page hasn't had a live admin click-through.
+Neither blocks calling the *build* done; both are worth a look once there's
+real data to look at.
 
 ## Deferred / out of scope (unchanged from requirements.md)
 

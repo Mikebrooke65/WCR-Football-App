@@ -2,6 +2,76 @@
 
 All notable changes to the football coaching app prototype will be documented in this file.
 
+## [2026-09-10] - V1.R Part 2: Data Retention & Privacy Assurance
+
+Built from the locked handoff spec `.kiro/specs/data-retention-privacy/`
+(requirements/design/tasks — read those, especially design.md's "Review pass
+(2026-09-10)" section, for full rationale). **Deployed and schema-verified
+this session** — migration `081` run (sanity-checked live, see Technical
+Notes), `retention-scan` deployed. **Not yet live-tested end to end**: no
+real candidate has gone through a full monthly cycle (the cron runs monthly,
+04:00 UTC on the 1st, so the first real tick is naturally in the future), and
+the Desktop report hasn't had an admin eyeball on it yet — see
+`NEXT-SESSION-NOTES.md` for what's still owed.
+
+### Added
+- **Inactive people's personal data now gets automatically cleaned up.**
+  Someone who's held zero active team roles for 12 months (or a child never
+  approved onto a team within 90 days of the invite lapsing) is queued for
+  privacy cleanup — an admin gets a month to review and exempt anyone who
+  shouldn't be touched, and after that grace window it happens
+  automatically. This replaces the old "Cleanup Lite Users" mechanism, which
+  never actually enforced anything meaningful.
+- **New Desktop "Data Retention" report**, always in the nav (not part of
+  the deferred Reporting suite) — shows who's queued, their role and when it
+  ended, and an Exempt button per row, plus a recent-history list of what's
+  actually happened in past cycles (auto-scrubbed / exempted / turned out to
+  still be eligible after all). An exemption made this session can be
+  undone from the same row.
+
+### Technical Notes
+- **"Delete" here means scrub-in-place, not a real row delete** — `users.id`
+  is kept so every FK referencing it (`messages.sender_id`,
+  `game_feedback.created_by`/`player_id`, substitution columns, etc.) stays
+  valid. Name/email/phone/DOB are cleared or replaced with a
+  collision-proof placeholder (`retired-<id>@deleted.invalid`); the row is
+  marked `retired_at` and `active = false`. Game feedback / Gant summaries
+  are untouched — still attributed to the now-scrubbed `player_id`, which is
+  the point.
+- **Migration `081`**: `users.retired_at` / `users.role_ended_at`,
+  `player_caregivers.inactive_at`, `user_holds_active_role()` (a
+  `SECURITY DEFINER` function shared by the scrub mechanism and the monthly
+  scan — needed because a pure caregiver structurally never has a
+  `team_members` row of their own, so a raw `team_members` check alone would
+  treat every caregiver of a still-active child as roleless), an index on
+  `admin_action_items(kind, status)`, and the monthly `pg_cron` + `pg_net`
+  schedule for `retention-scan` (same direct-`pg_net` pattern as migration
+  078's `send-rsvp-reminders`, reusing the existing Vault
+  `service_role_key` secret). **Run and sanity-checked live 2026-09-10**:
+  schema present, cron job registered, and `user_holds_active_role()`
+  verified against three real cases from production data — a team member
+  (true), a pure caregiver of a still-rostered child with no `team_members`
+  row of their own (true — the exact case the function exists to fix), and
+  a genuinely roleless user (false). All three matched expectation.
+- **`retention-scan` Edge Function** (new) does two things monthly: closes
+  out last cycle's due candidates (re-checking eligibility first, in case
+  someone rejoined during the 30-day grace window) and actually scrubs the
+  ones nobody exempted; then recomputes everyone's `role_ended_at` and opens
+  new candidates for the two populations (standard 12-month, and orphaned
+  pending children — measured from migration 058's 30-day auto-deny, not
+  the original invite, so ~120 days total in practice). The scrub logic
+  (`scrubUser`) lives inside this function as a plain internal call, **not**
+  its own deployable endpoint — the original spec draft had it as a
+  separately callable function taking an arbitrary user id, which any
+  signed-in user could have invoked on anyone's account; folding it in here
+  removes that attack surface by construction. Never calls
+  `auth.admin.deleteUser()` — that would cascade-delete the `public.users`
+  row via `auth.users`'s `ON DELETE CASCADE`, exactly the FK breakage this
+  whole mechanism exists to avoid.
+- **New Desktop report + `retention-api.ts`** follow the existing
+  `AdminActionItems.tsx` / `caregivers-api.ts` pattern for this table
+  (same admin-only RLS from migration 055, no new policy needed).
+
 ## [2026-09-08] - Caregivers can now see their children's team events
 
 ### Fixed
