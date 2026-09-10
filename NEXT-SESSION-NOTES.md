@@ -1575,7 +1575,7 @@ One-line status per item. Detail is in the sections further down.
 | **Roster "Remove" action** (new, surfaced from Task 12 item 6) | ✅ **Fully done, 2026-09-01** | Self-removal, the caregiver cascade (both directions), first-Manager protection, multi-team removal, and a plain Coach doing the removing — all confirmed live. Nothing left outstanding |
 | V1.5 Role-aware nav | ✅ DONE | — |
 | V1.6 Invite page branding | ✅ **DONE + live-verified 2026-09-08** | Branded invite landing (club logo/name/colour header, competition prominent + team sub-line + intro copy), consistent across all states. Migration `076` run (anon read of `club_settings` + scoped anon read of `competitions`). Confirmed live in incognito. **Gotcha banked:** PostgREST embeds return empty for `anon` on the teams table even with grant+policy+direct-read all fine — anon-facing reads must use direct queries, not embeds (see CHANGELOG 2026-09-08 V1.6). Commits `b8b9c61` + `8ba9ccc`/`eaa0b89`/`149b776` |
-| V1.7 RSVP / availability | 🟠 Mostly built | RSVP reminder pushes; caregiver multi-child RSVP build (design already agreed) |
+| V1.7 RSVP / availability | ✅ **DONE + live-verified 2026-09-08** | Piece A (caregiver multi-child RSVP) and Piece B (RSVP reminder pushes) both built, deployed, and live-verified end to end, including RLS/security checks and the anti-double-notify requirement. Nothing left outstanding — see "Current State — 8 September 2026 (V1.7 build)" at the top of this file |
 | V1.8 Admin console correctness pass | ✅ **DONE, built + pushed 2026-09-04** | Full 10-task Kiro spec (`.kiro/specs/admin-console-v1.8/`) shipped — flat admin sidebar, Coaching hub on real counts, Users list/detail cleanup, Caregiver Reviews folded into Users, Teams manager column + pending badge + Assign Manager, Competitions split into External Leagues / Club Events with click-throughs + fixtures. Reporting hidden → V2.8. Commits `dfa15dc`, `076fbd9`, `ccb7fea` (+ `9061382` lite/full UI removal). **Left for owner:** one live admin eyeball. Two follow-ups deferred: broaden "Active Coaches" count; V2 coaching-activity dashboard |
 | V1.M Messaging — send to Admins | ✅ **Fully closed, live-verified end-to-end 2026-09-08** | Root cause was two coupled things: (1) "Club Admin" messages are team-less but `messages.team_id` was NOT NULL and the compose form only auto-fills a team when you're on exactly one — so a multi-team admin sent an empty `team_id` and the insert was rejected (the "nothing happens" repro); (2) the inbox query keyed on team membership, so a team-less admin message wouldn't appear anyway. Fix (migration `075_messages_admin_inbox.sql` + client): `team_id` nullable, INSERT policy allows a team-less message from any authenticated user (contact-the-club path), a `SECURITY DEFINER` `message_thread_root_sender()` helper drives a SELECT clause so the thread's original sender sees admin replies (no recursion — the mig-035 trap), compose sends `team_id: null` for Club Admin, and `getThreads` now includes team-less threads. Confirmed live on localhost against the migrated DB: sending to Club Admin resolved to all 6 admins and appeared in the shared inbox. ✅ **Return path verified live 2026-09-08** (Hewie Duck, coach = non-admin sender, on desktop → messaged Club Admin; Mike Brooke admin replied on mobile; Hewie opened the thread and saw the reply — the root-sender SELECT clause from migration 075 works). Minor UX note (not a data bug): the reply didn't bump/indicate on the sender's thread *list* until the thread was opened — no live/unread signal on the list view; real-time + push behaviour to be assessed on the Capacitor native build |
 | **V1.R Part 1 — Role model & RLS fix** | ✅ **Fully done, live-verified, 2026-09-02** | Make Coach, Stop being Coach, Demote (incl. first-Manager protection both directions), the role-sync trigger + its Coaching-tab follow-up fix, and the caregiver-floor invariant all confirmed live. Nothing outstanding. Surfaced one new, separate, not-yet-fixed bug: "Manage Caregivers" visibility uses the team's age band instead of the person's own — see V1.R's write-up |
@@ -1600,16 +1600,16 @@ console (full spec shipped
 status table above for detail.
 
 **Remaining V1 build work:**
-1. **V1.7 RSVP** — the remaining bits: caregiver multi-child RSVP build + RSVP
-   reminder pushes. **Fully spec'd 2026-09-08:**
-   `.kiro/specs/v1.7-rsvp-availability/` (requirements / design / tasks). Build
-   Piece A (client + migration 077) before Piece B (Edge Function + pg_cron).
+1. ~~**V1.7 RSVP**~~ — **DONE, live-verified 2026-09-08.** Both pieces
+   (caregiver multi-child RSVP, RSVP reminder pushes) built, deployed, and
+   confirmed working end to end. See "Current State — 8 September 2026
+   (V1.7 build)" at the top of this file.
 2. **Privacy + retention — the final combined workstream, done LAST** (hard gate
-   before any store submission). Rewrite the privacy policy against everything
-   actually built → reconcile with the retention scoping notes → define the
-   retention/deletion policy → build it (V1.R Part 2) → fold in Gant's privacy
-   section (Task 11). See "Privacy + retention — the final combined V1
-   workstream" just below for the full sequencing.
+   before any store submission). Retention/deletion is now built and
+   schema-deployed (V1.R Part 2, 2026-09-10) — the one remaining step is
+   finishing the privacy policy rewrite against everything actually built,
+   plus folding in Gant's privacy section (Task 11). See "Privacy + retention
+   — the final combined V1 workstream" just below for the full sequencing.
 3. **V1.9 store distribution + privacy** — depends on step 2 locking; needs the
    real store listing in `club_settings.app_url` at go-live.
 
@@ -1985,8 +1985,8 @@ These block or shape work below. Listed here so they don't stay buried.
 | 2 | **Which events trigger a push in V1?** Candidates: new message (built), new schedule event, event change/cancellation, RSVP reminder | V1.1 completion | Start with new message (done) + event change/cancellation. RSVP reminders once V1.7 exists |
 | 3 | **Privacy policy** — club has none to extend (confirmed 2026-08-17), so writing from scratch | V1.9 store submission | **User-owned, in progress.** Start from the Privacy Commissioner's Priv-o-matic generator — templates and the store questionnaires are listed in V1.9 |
 | 3b | **Play Console target-audience declaration** — is this an app for children, or an app about children used by adults? | V1.9, and whether Google's Families policy applies | ⚠️ **No longer "almost certainly adults-only," and this is now live, not proposed** — the child-account redesign (Streamlined Invites spec) is built and shipped: children have their own direct login and can message a coach. Re-examine, don't assume. See the "Privacy policy & audience declaration" note under V1.9 |
-| 3c | **Data retention & cleanup** — how long data is kept after a role/team ends, and what triggers removal | The privacy statement can't be finished without it; also a **future build** | ⏳ Mike scoping. Detailed thinking captured in **`docs/data-retention-scoping.md`** (3 data layers, per-competition clocks, open questions). Becomes its own build/spec once decisions lock — see "V1.R" below |
-| 4 | **Player/Caregiver nav — 2 undecided slots** | V1.5 | Options: Announcements, or fold Announcements into Home and leave 5 buttons |
+| 3c | ~~**Data retention & cleanup**~~ — how long data is kept after a role/team ends, and what triggers removal | The privacy statement can't be finished without it; also a **future build** | **RESOLVED — decisions locked, and built + schema-deployed 2026-09-10 (V1.R Part 2).** See `docs/data-retention-scoping.md`'s "DECISIONS LOCKED" section for the rules, and "Current State — 10 September 2026" at the top of this file for the build |
+| 4 | ~~**Player/Caregiver nav — 2 undecided slots**~~ | V1.5 | **RESOLVED 2026-08-18** — Player/Caregiver nav is Home · Team · Schedule · Messages (4 tabs); Coaching/Games/Resources allocated by role elsewhere. See V1.5 |
 | 5 | **Does RSVP apply to Club Tournament teams, or only club teams?** | V1.7 scope | Probably club teams only for V1 — social/summer teams may just turn up |
 | 6 | **Friendly Manager export format** — waiting on sample | V1.T | User to obtain export sample or screenshot |
 | 7 | ~~Which machine for Android Studio?~~ | V1.1a | **RESOLVED 2026-08-14** — use the other laptop (has adequate disk/RAM). This laptop stays the main build machine. See V1.1a |
