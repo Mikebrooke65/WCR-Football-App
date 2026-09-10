@@ -35,19 +35,21 @@ Supabase Auth identity. This changes what "scrub in place" has to mean:
   to accidentally reintroduce the exact bug this spec was written to route
   around.
 - The right auth-side action is **`auth.admin.updateUserById(id, { email:
-  <placeholder>, phone: null, ban_duration: '87600h', user_metadata: {} })`**
-  (a ~10-year ban is effectively permanent, and is Supabase's supported
-  mechanism for revoking sign-in without deleting the identity). This can
-  only be done with the **service-role key**, which is never available to a
-  plain Postgres function — it has to happen in an **Edge Function**, not a
-  SQL migration function. This is why Piece A below is an Edge Function
+  <placeholder>, phone: null, user_metadata: {} })`** — freeing up the
+  person's real email/phone (see A.2) so it's available again the moment
+  they want to use it, without deleting the identity. This can only be done
+  with the **service-role key**, which is never available to a plain
+  Postgres function — it has to happen in an **Edge Function**, not a SQL
+  migration function. This is why Piece A below is an Edge Function
   (`scrub-user`), not just a SQL helper.
-- **Design default, flagged for Mike to confirm, not silently assumed**:
-  blocking future login (the `ban_duration`) is proposed as part of the
-  scrub, on the basis that a profile-less account that can still log in is a
-  confusing half-state. If a scrubbed person should still be able to sign
-  back in (e.g. to immediately re-register with fresh details rather than
-  being locked out), drop the `ban_duration` step and say so before build.
+- **Decided 2026-09-10 (Mike): no login ban.** A scrubbed person can come
+  straight back in and re-register as if they were new — someone who
+  genuinely rejoins the day after being scrubbed is just bad timing, not
+  someone to lock out. No `ban_duration` step. One implementation detail
+  this implies: because the real email is freed for reuse (previous bullet),
+  a rejoin naturally creates a **new** `auth.users`/`public.users` row under
+  that email — there's no path back into the old scrubbed row's data, which
+  matches "as though they're a new person" without needing an explicit ban.
 
 ---
 
@@ -100,9 +102,11 @@ scrubUser(userId):
 
   // Auth-side (see "Key finding" above) — service role only, this is why
   // this step lives in an Edge Function and not a SQL trigger/function.
+  // No ban_duration (decided 2026-09-10): a rejoin lands on a brand new
+  // auth.users/public.users row anyway, since the real email/phone freed
+  // up here are what a rejoin would sign up with.
   supabaseAdmin.auth.admin.updateUserById(userId, {
     email: placeholder_email, phone: null,
-    ban_duration: '87600h',       // ~10 years — flagged for confirmation
     user_metadata: {},
   })
 
@@ -185,15 +189,15 @@ attributed to the now-scrubbed `player_id`, which is the point.
    decision was made without either of us having that migration in view.
    Two clocks are now in play for the same population, and they need
    reconciling rather than stacking silently:
-   - **Recommended reconciliation**: treat migration `058`'s auto-deny as
-     the event that starts the clock, not the original invite. i.e. the new
+   - **Decided 2026-09-10 (Mike): Option A.** Migration `058`'s auto-deny is
+     the event that starts the clock, not the original invite — the new
      90-day rule in Piece B measures from `caregiver_approvals.responded_at`
      (set by migration `058` when it auto-denies), not from the request's
      original `created_at`. Net effect: **~120 days from the original
      unanswered invite to the child's information actually being scrubbed**
-     (30 to auto-deny + 90 to scrub), not 90. **Flagging this for
-     confirmation** — if Mike's intent was a 90-day total from the original
-     invite, the number to use below is 60, not 90.
+     (30 to auto-deny + this spec's own 90 to scrub). The `interval '90
+     days'` in B.2's pseudocode below is correct as written — no change
+     needed from this decision.
 
 ### B.1 Migration `081` (same migration as Piece A) — nothing new needed for `admin_action_items`
 
@@ -368,12 +372,14 @@ for the actual scrub, matching the locked decision.
 
 ## Summary of open items for Mike before/while building
 
-1. **Auth-side ban on scrub** (Key Finding section) — confirm blocking future
-   login via `ban_duration` is wanted, or should be dropped.
-2. **Orphaned-pending-children clock** — confirm 90 days is measured from
-   migration `058`'s auto-deny (~120 days total from the original invite) or
-   whether the intent was 90 days total (in which case the new rule's window
-   should be coded as 60 days, not 90).
+Both items originally raised here are now resolved:
+
+1. ~~**Auth-side ban on scrub.**~~ **RESOLVED 2026-09-10: no ban.** A
+   scrubbed person can come straight back in and re-registers as if new —
+   see the "Key finding" section and A.2 above.
+2. ~~**Orphaned-pending-children clock.**~~ **RESOLVED 2026-09-10: Option
+   A.** 90 days measured from migration `058`'s auto-deny, ~120 days total
+   from the original invite — see the "Corrections" section above.
 3. Everything else in `requirements.md`'s own "cross-cutting / out of scope"
    list (V2 anonymised-aggregate job, Supabase plan/PITR wording, the
    privacy-inbox owner) is unchanged by this design pass.
