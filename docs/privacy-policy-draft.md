@@ -159,21 +159,13 @@ You have the right to ask for a copy of any personal information we hold about
 you, and to ask for it to be corrected if you think it is wrong. To do this,
 contact us at [privacy@clubfootball.app].
 
-> ⚠️ OPEN ACTION (MUST FIX before publishing — Mike actioning, 2026-09-08):
-> this policy needs a **live, monitored inbox** for privacy requests.
-> `privacy@clubfootball.app` does NOT currently receive mail — the
-> clubfootball.app domain is send-only in Resend ("Enable Receiving" off, no
-> mailbox). The Privacy Act requires a working channel to exercise
-> access/correction rights. **Path decided 2026-09-08**: `clubfootball.app`
-> is already registered + DNS-hosted at Cloudflare Registrar (see
-> `NEXT-SESSION-NOTES.md`'s "V1.0 Buy a Product Domain"), so **Cloudflare
-> Email Routing** (free, built into that same dashboard) forwards
-> `privacy@clubfootball.app` straight to a real inbox Mike checks — no new
-> mailbox to host, no conflict with the existing Netlify apex records or the
-> `send.clubfootball.app` Resend records (different record types). Still
-> outstanding: Mike to actually enable it and confirm the destination
-> address. **A published policy pointing at a dead inbox is a compliance
-> failure — do not publish until this is confirmed live.**
+> ✅ **RESOLVED 2026-09-10**: `privacy@clubfootball.app` is live. Cloudflare
+> Email Routing forwards it to a real, monitored inbox (Mike confirmed the
+> routing rule active in the Cloudflare dashboard, DNS records enabled/
+> locked-in). No conflict with the existing Netlify apex records or the
+> `send.clubfootball.app` Resend records — different record types. This was
+> the last remaining blocker on this section; the address is safe to
+> publish.
 
 ## Coach feedback and progress notes on player performance
 
@@ -419,8 +411,8 @@ always be available in the app and at [website/URL].
 If you have any questions about this policy or how we handle your information,
 contact us at [privacy@clubfootball.app].
 
-> ⚠️ OPEN ACTION: same live-monitored-inbox requirement as "Your rights" above —
-> must be a working address before publishing.
+> ✅ RESOLVED 2026-09-10 — see "Your rights" above: `privacy@clubfootball.app`
+> is a live, monitored inbox via Cloudflare Email Routing.
 
 ---
 
@@ -433,22 +425,24 @@ decisions.
 
 **Must fix before publishing:**
 
-1. **Retention/deletion — decisions locked, build not finished.** ✅ The
-   *rules* are now settled (`docs/data-retention-scoping.md`'s "DECISIONS
-   LOCKED" section: in-place removal of personal fields, not account
-   deletion; 12 months after no role; monthly admin review with a 30-day
-   grace window; 90 days for an unconfirmed child invite). ⏳ **STILL TO
-   BUILD**: the scheduled job, the review queue, and the Desktop "Data
-   Retention & Privacy Assurance" report — spec drafted at
-   `.kiro/specs/data-retention-privacy/requirements.md`, not yet designed or
-   built. **Do not publish the "How long we keep your information" section
-   as-is until this is built and live-verified** — see the REVIEW note on
-   that section.
-2. **Privacy contact mailbox may not receive mail.** ⏳ MIKE DECIDING, still
-   open. `privacy@clubfootball.app` does not currently receive mail — must be
-   made to receive mail, or replaced with a real monitored address, before
-   publishing. A dead inbox is a compliance failure regardless of how good the
-   rest of the policy is.
+1. **Retention/deletion — decisions locked, design reviewed, build not
+   started.** ✅ The *rules* are settled (`docs/data-retention-scoping.md`'s
+   "DECISIONS LOCKED" section: in-place removal of personal fields, not
+   account deletion; 12 months after no role; monthly admin review with a
+   30-day grace window; 90 days for an unconfirmed child invite, measured
+   from migration 058's auto-deny). ✅ The *design* is also finished and
+   reviewed — `.kiro/specs/data-retention-privacy/design.md` (requirements
+   at `requirements.md` in the same folder), including a security review
+   pass on 2026-09-10. ⏳ **STILL TO BUILD**: the migration, the
+   `retention-scan` scheduled job, the review queue, and the Desktop "Data
+   Retention & Privacy Assurance" report — none of this is coded yet.
+   **Do not publish the "How long we keep your information" section as-is
+   until this is built and live-verified** — see the REVIEW note on that
+   section.
+2. ~~**Privacy contact mailbox may not receive mail.**~~ ✅ **RESOLVED
+   2026-09-10.** `privacy@clubfootball.app` is live via Cloudflare Email
+   Routing, forwarding to a real inbox Mike monitors — confirmed active in
+   the Cloudflare dashboard.
 3. **Children's information — mostly current, 4 things to close.** Both
    consent paths are written (External League via Friendly Manager, Club
    Tournament via in-app add-a-junior with caregiver confirmation), and the
