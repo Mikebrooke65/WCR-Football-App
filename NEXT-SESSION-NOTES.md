@@ -1611,7 +1611,9 @@ status table above for detail.
    plus folding in Gant's privacy section (Task 11). See "Privacy + retention
    — the final combined V1 workstream" just below for the full sequencing.
 3. **V1.9 store distribution + privacy** — depends on step 2 locking; needs the
-   real store listing in `club_settings.app_url` at go-live.
+   real store listing in `club_settings.app_url` at go-live. **Step-by-step
+   runbook for the actual Android + iOS submission process is captured in
+   full under V1.9 below** ("Store submission — step-by-step runbook").
 
 *(V1.6 invite-page branding was here — done 2026-09-08, `b8b9c61`; needs
 migration 076 run. "Caregiver DOB Correction Threshold" resolved 2026-09-08 as a
@@ -2856,7 +2858,15 @@ Do this near launch, once we know what the trial group actually needs.
 
 ---
 
-### V1.9 Store Distribution & Privacy Policy — NOT STARTED (needs V1.1)
+### V1.9 Store Distribution & Privacy Policy — IN PROGRESS (updated 2026-09-10)
+
+V1.1 is done, so this is no longer blocked. Status: the privacy policy
+draft is substantially reconciled against the live build (see
+`docs/privacy-policy-draft.md`'s "Open issues summary" for exactly what's
+left) and V1.R Part 2 (retention/deletion) is built and deployed. What's
+left is finishing the privacy policy's remaining open items, then the
+actual store submission itself — see "Store submission — step-by-step
+runbook" near the end of this section for the concrete steps.
 
 **Found 2026-08-25 while live-testing Add Player registration — capture for
 go-live**: the post-registration Welcome screen's "Open the app" button
@@ -3000,6 +3010,95 @@ React route — store reviewers must be able to reach it even if the app
 bundle fails to load. Already noted in the V1.0 DNS table.
 
 *Sources above were summarised and rephrased rather than reproduced.*
+
+#### Store submission — step-by-step runbook (captured 2026-09-10)
+
+This is the actual mechanical process for getting the app onto both
+stores, once the privacy policy is finished and V1.1b (iOS device testing)
+is done. Capacitor builds the native Android/iOS projects; it doesn't
+submit anything itself — Android Studio and Xcode hand off to each
+store's own console. Researched and current as of 2026-09-10; re-check
+official docs if this is picked up much later, since both stores change
+process/policy on their own schedule (see the two dated gotchas below).
+
+**Shared prerequisites (do these early, they're not quick):**
+- Google Play Developer account — **$25 one-time**.
+- Apple Developer Program — **$99/year**. Apple's identity verification
+  can take a day or two, so start this well before the iOS testing
+  session, not on the day.
+- Real app icon + splash screen assets (min 1024×1024px icon, 2732×2732px
+  splash) — `logo_url` in `club_settings` is still null (see the "TODO —
+  Club logo" note elsewhere in this file), worth doing both at once.
+- The privacy policy hosted at `clubfootball.app/privacy` as a static HTML
+  page (not a React route — store reviewers must reach it even if the app
+  bundle fails to load).
+
+**Android — build:**
+1. `npx cap sync android` to pull the current web build into the native
+   Android project (already exists from V1.1a testing).
+2. Generate icons/splash via `npx capacitor-assets generate` (needs
+   `@capacitor/assets` installed) from the source images above.
+3. In Android Studio: Build → Generate Signed Bundle/APK → Android App
+   Bundle. First time through, create a new keystore.
+   **Back the keystore file up somewhere safe outside the repo (e.g. the
+   same `OneDrive\Project Secrets` folder CLAUDE.md already uses for
+   other secrets) — losing it means this app listing can never be updated
+   again, ever, only replaced with a brand new one.**
+4. Resulting file: `android/app/release/app-release.aab`.
+
+**Android — submit:**
+5. In Play Console: create the app, fill in store listing copy, content
+   rating, the Data Safety questionnaire, and the target-audience
+   declaration (this is Open Decision 3b — answer it deliberately, not by
+   default, now that direct child login + child-to-coach messaging is
+   live).
+6. **Gotcha found 2026-09-10, worth planning around**: if this is a
+   personal Play Console account created after 2023-11-13 (which a new
+   account would be), Google requires a **closed test with at least 12
+   opted-in testers running continuously for 14 days** before you're even
+   allowed to apply for production access — a hard two-week minimum, and
+   the clock resets if testers drop below 12 or opt out. Start this track
+   as soon as a signed build exists, in parallel with finishing the
+   privacy policy, not after — otherwise it's 14 extra days bolted onto
+   the end.
+7. Once eligible: apply for production access (answers 3 short sections —
+   your testing experience, the app/audience, production readiness), then
+   Production → Create new release → upload the `.aab` → roll out. Review
+   after that typically takes 1–5 days.
+8. For every future update: bump `versionCode` in
+   `android/app/build.gradle`, rebuild/re-sign, upload as a new release —
+   the store-listing forms don't need re-doing.
+
+**iOS — build:**
+1. `npx cap sync ios`, then open the project in Xcode on the borrowed Mac.
+2. **Gotcha found 2026-09-10, check this before the testing day**: as of
+   2026-04-28 Apple requires every new App Store submission to be built
+   with **Xcode 26 / the iOS 26 SDK** — older Xcode versions are rejected
+   outright. This needs no Capacitor code changes, it's purely a toolchain
+   version, but confirm the borrowed MacBook actually has Xcode 26 (or can
+   update to it) before the day, so the one borrowed-Mac session isn't
+   burned on an Xcode update.
+3. In Signing & Capabilities: sign in with the Apple ID, select the team.
+4. Product → Archive.
+
+**iOS — submit:**
+5. Distribute App → App Store Connect → Upload (Xcode can create the app
+   entry in App Store Connect automatically from the bundle identifier).
+6. In App Store Connect: write the description/keywords/URLs, add at
+   least 3 screenshots, complete the App Privacy questionnaire (must
+   agree with the hosted privacy policy — mention Supabase, Firebase
+   Cloud Messaging, and Resend as third parties, per the "Templates and
+   starting points" section above), attach the processed build once it
+   finishes, resolve any compliance warnings, then Add for Review.
+7. For every future update: bump the version/build number in Xcode,
+   repeat Archive → Upload → submit for review.
+
+**After both are live:**
+8. Update `club_settings.app_url` (DB value only, no code change) to the
+   real store listing(s), or a smart link that routes per platform — see
+   the note captured 2026-08-25 above. Until this is done, the
+   post-registration "Open the app" button keeps sending everyone back to
+   the PWA instead of the installed app.
 
 ---
 
