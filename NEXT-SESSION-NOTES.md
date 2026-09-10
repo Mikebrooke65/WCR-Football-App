@@ -3033,6 +3033,56 @@ process/policy on their own schedule (see the two dated gotchas below).
   page (not a React route — store reviewers must reach it even if the app
   bundle fails to load).
 
+**Does iOS have the same mandatory testing requirement? No — start
+Android's closed test as early as it's ready (researched 2026-09-10).**
+Apple has no equivalent rule: TestFlight beta testing is entirely
+optional, at your discretion, not a gate Apple enforces before App Store
+submission — you can go straight to App Review if you choose. It's still
+worth doing informally for real QA once there's a signed iOS build (using
+the same 12-tester scenario below), just not because any store requires
+it the way Google does.
+
+Given that, there's no reason to wait on Android's closed test — start it
+the moment a signed `.aab` exists, even before the privacy policy or iOS
+testing are finished, since the 14-day clock only needs to run once and
+doing it in parallel with everything else shortens the overall timeline
+rather than adding 14 days at the end.
+
+**If you find and fix a bug during the 14 days, do you have to start
+over? No — confirmed 2026-09-10.** Uploading a new build (bumped
+`versionCode`, bug fixes, changed release notes) does **not** reset the
+clock. The only thing that resets a tester's count is that specific
+tester clicking "leave the test" / opting out — as long as your 12
+testers stay opted in, the 14-day countdown keeps running underneath any
+number of new builds you ship to them. (The one thing that *does* reset
+it: creating a brand-new test track and moving testers to it — don't do
+that, just keep releasing new builds to the same closed track.) In other
+words, finding and fixing something during this window isn't a setback —
+Google explicitly treats it as evidence the testing was genuine.
+
+**12-tester scenario — what the testers should actually do.** Google
+checks real engagement across the 14 days, not just an install, so this
+is designed to both satisfy that and genuinely exercise the app before
+go-live. Roughly 2 testers per role, using separate opted-in Google
+accounts (the same person can hold more than one tester identity via a
+spare email + a second device/emulator, if 12 separate real people isn't
+practical):
+- **Admins (2)** — create a team, invite a manager and a coach, review
+  Users / Caregiver Approvals, check the Data Retention report.
+- **Managers (2)** — manage the roster, create a schedule event, use Send
+  Reminder / View Attendee List.
+- **Coaches (2)** — use Coaching, log a Gant session, capture feedback,
+  check Games/Subs.
+- **Players (3–4)** — RSVP to events, check their Team page, send a
+  message.
+- **Caregivers (2–3)** — add a junior, respond to an approval, RSVP on
+  behalf of a child (multi-child RSVP), check Messages.
+
+That spread exercises registration, invites, roster management,
+scheduling/RSVP, messaging, and Gant — the core of the app — with real
+daily-ish sessions across the window, rather than a single install and
+forget.
+
 **Android — build:**
 1. `npx cap sync android` to pull the current web build into the native
    Android project (already exists from V1.1a testing).
