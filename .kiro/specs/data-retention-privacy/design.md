@@ -14,6 +14,63 @@ Latest migration on `prototype` as of this design: `080`. Next free number:
 
 ---
 
+## Review pass (2026-09-10) — three fixes before this is build-ready
+
+Re-read against the actual schema and this project's existing Edge Function
+conventions before moving to `tasks.md`. Two real gaps, one inconsistency,
+and one thing checked and ruled out:
+
+1. **[Security — the important one] Nothing stops an ordinary authenticated
+   user from invoking a scrub directly.** `send-rsvp-reminders` (migration
+   `078`, the pattern this design copies) relies only on Supabase's default
+   `verify_jwt` — which accepts *any* validly-signed JWT, not specifically
+   the service role's — and has no in-function caller check. That's a
+   tolerable gap for RSVP reminders (worst case: an early, de-duplicated
+   push). It is **not tolerable here**: as originally drafted, `scrub-user`
+   was its own separately-deployable, separately-callable Edge Function
+   taking an arbitrary `userId` — meaning any signed-in user could call it
+   on *anyone's* account and force a real PII scrub on demand, with no
+   admin involved at all. **Fix (below, A.2 revised): don't deploy a
+   separate `scrub-user` function at all.** Fold the scrub logic into
+   `retention-scan` as an internal (non-exported, not separately routable)
+   function — there is no legitimate caller of it other than
+   `retention-scan` itself per this spec, so removing the second HTTP
+   endpoint removes the attack surface by construction rather than relying
+   on a runtime check that's easy to forget or bypass later. (If a future
+   "scrub this specific person right now" admin action is ever added to
+   Piece C, *that* would need its own function with an explicit
+   admin-role check on the caller — out of scope today, since C is
+   explicitly view + exempt only, no manual trigger.)
+2. **[Consistency] Step 4's exclusion check was stricter than Step 3's,
+   breaking the "one-cycle snooze" exemption semantics for orphaned
+   children specifically.** Step 3 (standard population) only excludes an
+   already-**pending** candidate before opening a new one — an exempted
+   (`actioned`) row doesn't block next month's fresh candidate, which is
+   what makes an exemption a one-cycle snooze rather than permanent (B.4).
+   Step 4 as drafted excluded "pending/actioned" — meaning an admin's
+   exemption of an orphaned child would have been *permanent* by accident,
+   inconsistent with every other population. **Fixed below** to match
+   Step 3 exactly (exclude `pending` only).
+3. **[Minor robustness]** Step 2's second `UPDATE` (clearing `role_ended_at`
+   back to `NULL` on rejoin) didn't guard on `retired_at IS NULL` the way
+   its first `UPDATE` does. Harmless under this design as drafted (a
+   retired row shouldn't organically regain a `team_members` row, since a
+   rejoin creates a new row under the freed email per the no-ban decision)
+   but cheap to guard explicitly rather than rely on that always holding.
+   Also added `active = false` to the scrub itself, matching this
+   project's existing convention (migration `058` does the same on
+   auto-deny) rather than leaving `active` untouched and undocumented.
+4. **Checked and ruled out**: whether exposing `role_ended_at`/`retired_at`
+   as plain columns on `users` leaks who's-about-to-be-scrubbed to
+   ordinary users. Confirmed against the actual `users` RLS (migration
+   `002`): `SELECT` is scoped to *own row* or *admin*, not a broad
+   "any authenticated user can read any user" policy — and a role-holding
+   teammate's `role_ended_at` is null anyway (that's what "role-holding"
+   means), so the only people who can ever see a non-null value are the
+   row's own (already-inactive) owner or an admin. No fix needed.
+
+---
+
 ## Key finding that reshapes Piece A: `users` is not a freestanding table
 
 `public.users.id` is `PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE`
@@ -39,9 +96,9 @@ Supabase Auth identity. This changes what "scrub in place" has to mean:
   person's real email/phone (see A.2) so it's available again the moment
   they want to use it, without deleting the identity. This can only be done
   with the **service-role key**, which is never available to a plain
-  Postgres function — it has to happen in an **Edge Function**, not a SQL
-  migration function. This is why Piece A below is an Edge Function
-  (`scrub-user`), not just a SQL helper.
+  Postgres function — it has to happen in an **Edge Function's** code, not a
+  SQL migration function (see A.2 — as an internal step of `retention-scan`,
+  not a separate deployed function, per the review pass below).
 - **Decided 2026-09-10 (Mike): no login ban.** A scrubbed person can come
   straight back in and re-register as if they were new — someone who
   genuinely rejoins the day after being scrubbed is just bad timing, not
@@ -72,14 +129,20 @@ No new table needed for the scrub state itself — two columns on `users` is
 enough, matching this project's general preference for the smallest schema
 change that works (see V1.R Part 1's `is_coach` precedent).
 
-### A.2 `scrub-user` Edge Function (service role)
+### A.2 `scrubUser()` — an internal function inside `retention-scan`, not its own Edge Function
 
-New `supabase/functions/scrub-user/index.ts`, invoked only server-side (by
-Piece B's scheduled job — never exposed as a callable a client could hit).
-Per requirement, idempotent (A4) and admin-excluded (A7):
+**Revised per the review pass above (finding 1): no separate `scrub-user`
+Edge Function.** This is a plain (non-`Deno.serve`, not independently
+routable) function living inside `supabase/functions/retention-scan/
+index.ts`, called only from that function's own code (Piece B.2). There is
+no second HTTP endpoint for anyone to call directly — the only way this
+logic ever runs is as part of `retention-scan`'s own monthly execution,
+which is itself gated the same way migration `078`'s job is (invoked by
+`pg_cron`/`pg_net` carrying the Vault service-role secret). Per requirement,
+idempotent (A4) and admin-excluded (A7):
 
 ```
-scrubUser(userId):
+scrubUser(userId):   // called from within retentionScan(), not its own endpoint
   user = SELECT * FROM users WHERE id = userId
   if user.role == 'admin': return {skipped: 'admin'}          // A7
   if user.retired_at is not null: return {skipped: 'already-retired'}  // A4
@@ -97,6 +160,9 @@ scrubUser(userId):
   UPDATE users SET
     first_name = 'Former', last_name = 'Member',
     email = placeholder_email, cellphone = NULL, date_of_birth = NULL,
+    active = false,   -- matches the existing convention (migration 058
+                       -- does the same on auto-deny) rather than leaving
+                       -- `active` undocumented for a retired row
     retired_at = now()
   WHERE id = userId
 
@@ -241,7 +307,7 @@ retentionScan():
         detail = detail || '{"outcome":"no_longer_eligible"}'
         WHERE id = row.id
       continue
-    scrub-user(row.player_id)   -- Piece A
+    scrubUser(row.player_id)   -- Piece A, internal call (see A.2 review revision)
     UPDATE admin_action_items SET status='actioned', actioned_at=now(),
       actioned_by=NULL,   -- NULL = system-actioned, distinguishes from an
                            -- admin's own exemption (actioned_by = their id)
@@ -259,7 +325,10 @@ retentionScan():
     WHERE role != 'admin' AND retired_at IS NULL AND role_ended_at IS NULL
       AND NOT user_holds_active_role(id)
   UPDATE users SET role_ended_at = NULL
-    WHERE role_ended_at IS NOT NULL AND user_holds_active_role(id)
+    WHERE retired_at IS NULL   -- review pass finding 3: explicit guard,
+                                -- even though a retired row shouldn't
+                                -- organically regain a team_members row
+      AND role_ended_at IS NOT NULL AND user_holds_active_role(id)
 
   # --- Step 3: open new candidates — standard 12-month population ---
   newly_eligible = SELECT id, role_ended_at FROM users
@@ -278,11 +347,20 @@ retentionScan():
     ), 'pending')
 
   # --- Step 4: open new candidates — orphaned pending children ---
-  # See "Corrections" above re: the 90-vs-60-day reconciliation.
+  # Clock confirmed as Option A (see "Corrections" above): 90 days from
+  # migration 058's auto-deny.
   orphaned = SELECT player_id, responded_at FROM caregiver_approvals
     WHERE request_kind='add_child' AND status='denied' AND responded_by IS NULL
-      AND responded_at <= now() - interval '90 days'   -- confirm vs 60, see above
-      AND NOT EXISTS (matching pending/actioned admin_action_items already)
+      AND responded_at <= now() - interval '90 days'
+      AND NOT EXISTS (
+        -- Review pass finding 2: only exclude an existing PENDING row,
+        -- matching Step 3 exactly — excluding 'actioned' too would make an
+        -- admin's exemption of an orphaned child permanent by accident,
+        -- unlike every other population's one-cycle-snooze behaviour (B.4).
+        SELECT 1 FROM admin_action_items
+        WHERE kind='retention_candidate' AND player_id=caregiver_approvals.player_id
+          AND status='pending'
+      )
       AND NOT user_holds_active_role(player_id)   -- in case they were added
                                                     -- to a different team since
   for row in orphaned:
